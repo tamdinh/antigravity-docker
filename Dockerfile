@@ -94,6 +94,7 @@ RUN mkdir -p /home/${USERNAME}/.local/bin && \
 
 # Add ~/.local/bin and package manager binaries to PATH
 ENV PATH="/home/${USERNAME}/.gemini/antigravity-cli/bin:/home/${USERNAME}/.local/bin:/home/${USERNAME}/.cargo/bin:/home/${USERNAME}/.local/share/pnpm:${PATH}"
+ENV AGY_ENABLE_HUB="true"
 
 # Create required directories for persistent storage and workspace
 USER root

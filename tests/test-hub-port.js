@@ -14,14 +14,18 @@ test('Hub Port Configuration & --hub-port Flag Integration', async (t) => {
         assert.match(entrypointContent, /AGY_HUB_PORT="\$\{AGY_HUB_PORT:-4402\}"/);
     });
 
-    await t.test('entrypoint.sh passes --hub-port in setup and daemon modes', () => {
+    await t.test('entrypoint.sh sets and exports AGY_ENABLE_HUB', () => {
+        assert.match(entrypointContent, /export AGY_ENABLE_HUB="\$\{AGY_ENABLE_HUB:-true\}"/);
+    });
+
+    await t.test('entrypoint.sh passes --hub-port in setup and daemon modes, and --hub in daemon mode', () => {
         // Match setup mode agy execution
         const setupMatch = entrypointContent.match(/setup\)[\s\S]*?exec gosu "\$DEVELOPER_USER" agy --remote-control[^\n]*--hub-port "\$AGY_HUB_PORT"/);
         assert.ok(setupMatch, 'entrypoint.sh setup mode must pass --hub-port "$AGY_HUB_PORT"');
 
-        // Match daemon mode agy execution
-        const daemonMatch = entrypointContent.match(/daemon\)[\s\S]*?exec gosu "\$DEVELOPER_USER" agy --remote-control[^\n]*--hub-port "\$AGY_HUB_PORT"/);
-        assert.ok(daemonMatch, 'entrypoint.sh daemon mode must pass --hub-port "$AGY_HUB_PORT"');
+        // Match daemon mode agy execution with --hub and --hub-port
+        const daemonMatch = entrypointContent.match(/daemon\)[\s\S]*?exec gosu "\$DEVELOPER_USER" agy --remote-control[^\n]*--hub --hub-port "\$AGY_HUB_PORT"/);
+        assert.ok(daemonMatch, 'entrypoint.sh daemon mode must pass --hub and --hub-port "$AGY_HUB_PORT"');
     });
 
     await t.test('entrypoint.sh writes AGY_HUB_PORT directly to port and address files', () => {
@@ -123,6 +127,34 @@ test('Hub Port Configuration & --hub-port Flag Integration', async (t) => {
         } finally {
             proxyProc.kill('SIGKILL');
             mockUpstream.close();
+        }
+    });
+
+    await t.test('checkUpstreamHealth marks 404 as unhealthy and 200 as healthy', async () => {
+        const { checkUpstreamHealth } = require('../proxy/lib/pages');
+        const TEST_HEALTH_PORT = 19922;
+
+        let currentStatusCode = 404;
+        const mockServer = http.createServer((req, res) => {
+            res.writeHead(currentStatusCode, { 'Content-Type': 'text/plain' });
+            res.end(currentStatusCode === 200 ? 'OK' : 'Not Found');
+        });
+
+        await new Promise((resolve) => mockServer.listen(TEST_HEALTH_PORT, '127.0.0.1', resolve));
+
+        try {
+            // When upstream returns 404
+            const result404 = await checkUpstreamHealth(TEST_HEALTH_PORT);
+            assert.equal(result404.up, false, '404 must be marked as not up');
+            assert.equal(result404.statusCode, 404);
+
+            // When upstream returns 200
+            currentStatusCode = 200;
+            const result200 = await checkUpstreamHealth(TEST_HEALTH_PORT);
+            assert.equal(result200.up, true, '200 must be marked as up');
+            assert.equal(result200.statusCode, 200);
+        } finally {
+            mockServer.close();
         }
     });
 });

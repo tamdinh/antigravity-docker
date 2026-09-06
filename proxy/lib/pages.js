@@ -1223,7 +1223,7 @@ function checkUpstreamHealth(port, timeoutMs = 2000) {
         }, (res) => {
             const latency = Date.now() - startTime;
             resolve({
-                up: res.statusCode < 500,
+                up: res.statusCode >= 200 && res.statusCode < 400,
                 statusCode: res.statusCode,
                 latency
             });

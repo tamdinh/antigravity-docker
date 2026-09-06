@@ -10,6 +10,7 @@ WORKSPACE_DIR="/workspace"
 INSTANCE_NAME="${RC_NAME:-server-agent}"
 TARGET_PORT="${AGY_PORT:-4400}"
 AGY_HUB_PORT="${AGY_HUB_PORT:-4402}"
+export AGY_ENABLE_HUB="${AGY_ENABLE_HUB:-true}"
 
 # 1. Dynamically configure user/group UID and GID (PUID/PGID)
 PUID="${PUID:-1000}"
@@ -377,8 +378,8 @@ case "$1" in
 
         cd "$WORKSPACE_DIR"
 
-        # Launch agy directly with explicit hub port
-        exec gosu "$DEVELOPER_USER" agy --remote-control --remote-control-name "$INSTANCE_NAME" --hub-port "$AGY_HUB_PORT"
+        # Launch agy directly with explicit hub port and remote control
+        exec gosu "$DEVELOPER_USER" agy --remote-control --remote-control-name "$INSTANCE_NAME" --hub --hub-port "$AGY_HUB_PORT"
         ;;
 
     *)
