@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   antigravity:
-    image: jklinker/antigravity-docker:latest
+    image: tamdinh/antigravity-docker:latest
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -20,10 +20,11 @@ services:
       - HOST_SSH_HOST=host.docker.internal
       - HOST_SSH_PORT=22
       - HOST_SSH_DIR=
+      - GIT_USER_NAME: "${GIT_USER_NAME}"
+      - GIT_USER_EMAIL: "${GIT_USER_EMAIL}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./workspace:/workspace
-      - ./data/gemini:/home/developer/.gemini
-      - ./data/ssh:/home/developer/.ssh
-      - ./data/gitconfig:/home/developer/.gitconfig
+      - antigravity-workspace:/workspace
+      - antigravity-gemini:/home/developer/.gemini
+      - antigravity-ssh:/home/developer/.ssh
