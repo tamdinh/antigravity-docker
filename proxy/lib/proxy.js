@@ -63,6 +63,16 @@ function interceptHtmlResponse(proxyRes, res, statusCode, resHeaders, transform)
         chunks.push(chunk);
     });
 
+    proxyRes.on('error', (err) => {
+        console.error('[HTTP Proxy Upstream Stream Error]', err.message);
+        if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'text/plain' });
+            res.end('Upstream stream error');
+        } else {
+            res.destroy();
+        }
+    });
+
     proxyRes.on('end', () => {
         if (tooLarge) {
             res.end();
@@ -164,8 +174,12 @@ function proxyToIde(req, res, targetPath) {
 
         // Rewrite Location headers to stay under the /ide prefix
         if (resHeaders['location'] && typeof resHeaders['location'] === 'string') {
-            if (resHeaders['location'].startsWith('/')) {
-                resHeaders['location'] = '/ide' + resHeaders['location'];
+            let loc = resHeaders['location'];
+            loc = loc.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, '');
+            if (loc.startsWith('/') && !loc.startsWith('/ide/')) {
+                resHeaders['location'] = '/ide' + loc;
+            } else {
+                resHeaders['location'] = loc;
             }
         }
         resHeaders['x-accel-buffering'] = 'no';
@@ -375,7 +389,15 @@ function handleWebSocketUpgrade(req, clientSocket, head, targetPort) {
         agent: false,
     });
 
+    const earlyClientErrorHandler = () => {
+        upstreamReq.destroy();
+    };
+    clientSocket.once('error', earlyClientErrorHandler);
+    clientSocket.once('close', earlyClientErrorHandler);
+
     upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
+        clientSocket.removeListener('error', earlyClientErrorHandler);
+        clientSocket.removeListener('close', earlyClientErrorHandler);
         upstreamSocket.setNoDelay(true);
 
         const rawResponse = formatRawHttpResponse(101, 'Switching Protocols', upstreamRes.headers);
@@ -400,12 +422,16 @@ function handleWebSocketUpgrade(req, clientSocket, head, targetPort) {
     });
 
     upstreamReq.on('response', (upstreamRes) => {
+        clientSocket.removeListener('error', earlyClientErrorHandler);
+        clientSocket.removeListener('close', earlyClientErrorHandler);
         const rawResponse = formatRawHttpResponse(upstreamRes.statusCode, upstreamRes.statusMessage || '', upstreamRes.headers);
         clientSocket.write(rawResponse);
         upstreamRes.pipe(clientSocket);
     });
 
     upstreamReq.on('error', (err) => {
+        clientSocket.removeListener('error', earlyClientErrorHandler);
+        clientSocket.removeListener('close', earlyClientErrorHandler);
         console.error('[WebSocket Upgrade Error]', err.message);
         clientSocket.destroy();
     });

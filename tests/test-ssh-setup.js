@@ -5,7 +5,17 @@ const path = require('node:path');
 const os = require('node:os');
 const { execSync } = require('node:child_process');
 
-test('SSH & Git Config Initialization', async (t) => {
+const hasBash = () => {
+    try {
+        const shell = process.platform === 'win32' ? 'bash' : '/bin/bash';
+        execSync('bash --version', { stdio: 'ignore', shell });
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
+
+test('SSH & Git Config Initialization', { skip: !hasBash() ? 'Bash is required for Linux SSH shell tests' : false }, async (t) => {
     const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-ssh-test-'));
     const testDeveloper = process.env.USER || 'developer';
     const testHome = path.join(tmpBase, 'home');

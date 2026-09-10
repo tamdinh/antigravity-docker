@@ -82,7 +82,9 @@ RUN if id -u ubuntu >/dev/null 2>&1; then userdel -f -r ubuntu || true; fi && \
         useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USERNAME}; \
     else \
         usermod -l ${USERNAME} -d /home/${USERNAME} -m $(id -un ${USER_UID}); \
-    fi
+    fi && \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} && \
+    chmod 0440 /etc/sudoers.d/${USERNAME}
 
 # 6. Install Antigravity CLI (agy) for developer user
 USER ${USERNAME}
@@ -102,7 +104,9 @@ RUN mkdir -p /home/${USERNAME}/.gemini \
              /home/${USERNAME}/.local/share/code-server \
              /home/${USERNAME}/.config/code-server \
              /workspace && \
-    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} /workspace
+    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME} /workspace && \
+    ln -sf /home/${USERNAME}/.local/bin/agy /usr/local/bin/agy && \
+    ln -sf /home/${USERNAME}/.local/bin/agy /usr/local/bin/agentapi
 
 COPY assets/ /usr/local/share/antigravity/assets/
 RUN if [ -d /usr/lib/code-server/src/browser/media ]; then \

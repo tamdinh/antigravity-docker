@@ -84,8 +84,9 @@ EOF
 fi
 
 # Scan /workspace and register each folder as a separate project in ~/.gemini/config/projects/<UUID>.json
-# only if the projects folder is empty
-if [ -z "$(ls -A "$GEMINI_DIR/config/projects" 2>/dev/null)" ]; then
+# only if user projects have not already been configured
+EXISTING_PROJECTS=$(find "$GEMINI_DIR/config/projects" -maxdepth 1 -name "*.json" ! -name "outside-of-project.json" ! -name ".json" 2>/dev/null | head -n 1)
+if [ -z "$EXISTING_PROJECTS" ]; then
     node -e '
 const fs = require("fs");
 const path = require("path");
@@ -97,7 +98,7 @@ const workspaceDir = process.argv[2];
 fs.mkdirSync(projectsDir, { recursive: true });
 
 // Check if projects directory is already populated
-const existingFiles = fs.readdirSync(projectsDir).filter(f => f.endsWith(".json") && f !== ".json");
+const existingFiles = fs.readdirSync(projectsDir).filter(f => f.endsWith(".json") && f !== ".json" && f !== "outside-of-project.json");
 if (existingFiles.length > 0) {
     process.exit(0);
 }
@@ -188,8 +189,8 @@ fi
 chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$GEMINI_DIR" "/home/${DEVELOPER_USER}"
 chmod -R u+rwX,g+rwX "$GEMINI_DIR" || true
 
-if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ]; then
-    chown ${DEVELOPER_USER}:${DEVELOPER_USER} "$WORKSPACE_DIR" || true
+if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ] || ! gosu "$DEVELOPER_USER" test -w "$WORKSPACE_DIR" 2>/dev/null; then
+    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$WORKSPACE_DIR" || true
 fi
 
 # Configure SSH directory, permissions, and client defaults
@@ -277,7 +278,19 @@ export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOP
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "$WORKSPACE_DIR" 2>/dev/null || true
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "${WORKSPACE_DIR}/*" 2>/dev/null || true
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "$GEMINI_DIR" 2>/dev/null || true
-gosu "$DEVELOPER_USER" git config --global --add safe.directory "$ANTIGRAVITY_DIR" 2>/dev/null || true
+
+# Configure Git user identity if provided via environment
+if [ -n "$GIT_USER_NAME" ]; then
+    gosu "$DEVELOPER_USER" git config --global user.name "$GIT_USER_NAME" 2>/dev/null || true
+fi
+if [ -n "$GIT_USER_EMAIL" ]; then
+    gosu "$DEVELOPER_USER" git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+fi
+
+# Ensure agentapi symlink is available in PATH
+if [ ! -f /usr/local/bin/agentapi ] && [ -x "/home/${DEVELOPER_USER}/.local/bin/agy" ]; then
+    ln -sf "/home/${DEVELOPER_USER}/.local/bin/agy" /usr/local/bin/agentapi 2>/dev/null || true
+fi
 
 # 5. Mode dispatch
 case "$1" in
@@ -355,6 +368,8 @@ case "$1" in
         export HOST_SSH_HOST="${HOST_SSH_HOST:-host.docker.internal}"
         export HOST_SSH_PORT="${HOST_SSH_PORT:-22}"
         export HOST_SSH_DIR="${HOST_SSH_DIR:-}"
+        export TRUST_PROXY="${TRUST_PROXY:-false}"
+        export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}"
         gosu "$DEVELOPER_USER" node /usr/local/bin/auth-proxy.js &
 
         if [ ! -s "$TOKEN_FILE" ]; then
@@ -366,7 +381,7 @@ case "$1" in
             echo " If this is your first run, check the logs or run the setup command:"
             echo "   docker compose run --rm antigravity setup"
             echo " Or via standalone docker run:"
-            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini jklinker/antigravity-docker:latest setup"
+            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini tamdinh/antigravity-docker:latest setup"
             echo " Or open the sign-in URL shown below in your browser."
             echo "==================================================================="
         else

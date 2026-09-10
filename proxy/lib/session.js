@@ -27,8 +27,11 @@ setInterval(() => {
 function getClientIp(req) {
     const remote = req.socket?.remoteAddress || '127.0.0.1';
     if (TRUST_PROXY && req.headers['x-forwarded-for']) {
-        const forwarded = req.headers['x-forwarded-for'];
-        return forwarded.split(',')[0].trim();
+        const raw = req.headers['x-forwarded-for'];
+        const forwarded = Array.isArray(raw) ? raw[0] : raw;
+        if (typeof forwarded === 'string') {
+            return forwarded.split(',')[0].trim();
+        }
     }
     return remote;
 }

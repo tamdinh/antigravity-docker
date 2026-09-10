@@ -986,17 +986,22 @@ class SidecarManager extends EventEmitter {
                 if (currentSidecar && currentSidecar.enabled) {
                     const policy = currentSidecar.restartPolicy || 'always';
                     const shouldRestart = (policy === 'always') || (policy === 'on-failure' && code !== 0);
+                    const MAX_RESTART_RETRIES = 10;
 
                     if (shouldRestart) {
-                        console.log(`[Sidecar Manager] 🔁 Restarting worker '${id}' in 3s (Policy: ${policy})...`);
-                        const timer = setTimeout(() => {
-                            const latest = this.getSidecar(id);
-                            if (latest && latest.enabled && !latest.isScheduled) {
-                                workerEntry.restartCount += 1;
-                                this.startWorker(latest);
-                            }
-                        }, 3000);
-                        this.runningWorkers.set(id, { ...workerEntry, process: null, timer });
+                        if ((workerEntry.restartCount || 0) < MAX_RESTART_RETRIES) {
+                            console.log(`[Sidecar Manager] 🔁 Restarting worker '${id}' in 3s (Attempt ${workerEntry.restartCount + 1}/${MAX_RESTART_RETRIES}, Policy: ${policy})...`);
+                            const timer = setTimeout(() => {
+                                const latest = this.getSidecar(id);
+                                if (latest && latest.enabled && !latest.isScheduled) {
+                                    workerEntry.restartCount += 1;
+                                    this.startWorker(latest);
+                                }
+                            }, 3000);
+                            this.runningWorkers.set(id, { ...workerEntry, process: null, timer });
+                        } else {
+                            console.error(`[Sidecar Manager] 🛑 Worker '${id}' exceeded maximum restart attempts (${MAX_RESTART_RETRIES}). Pausing auto-restart.`);
+                        }
                     }
                 }
             });
@@ -1070,8 +1075,16 @@ class SidecarManager extends EventEmitter {
             return;
         }
 
-        const execCommand = args[1];
+        let execCommand = args[1];
         const execArgs = args.slice(2);
+        if (execCommand === 'agentapi') {
+            const candidateAgy = path.join(LOCAL_BIN_DIR, 'agy');
+            if (process.env.ANTIGRAVITY_AGENTAPI_EXE && fs.existsSync(process.env.ANTIGRAVITY_AGENTAPI_EXE)) {
+                execCommand = process.env.ANTIGRAVITY_AGENTAPI_EXE;
+            } else if (fs.existsSync(candidateAgy)) {
+                execCommand = candidateAgy;
+            }
+        }
         const sidecarDir = sidecar.directory || this.getSidecarDir(id);
         const dataDir = resolveSecureSubpath(RUNTIME_DATA_DIR, id, 'data');
         const logsDir = resolveSecureSubpath(RUNTIME_DATA_DIR, id, 'logs');
@@ -1087,7 +1100,7 @@ class SidecarManager extends EventEmitter {
         const env = await this.buildSidecarEnv(sidecar, dataDir, sidecarDir);
 
         // Special logging if agentapi prompt is fired
-        if (execCommand === 'agentapi' && execArgs[0] === 'new-conversation') {
+        if ((args[1] === 'agentapi' || execCommand.endsWith('agy')) && execArgs[0] === 'new-conversation') {
             const prompt = execArgs[execArgs.length - 1];
             console.log(`[Sidecar Manager] 💬 Firing agentapi prompt for '${id}' [Project: ${sidecar.projectId || 'default'}]: "${prompt}"`);
         } else {
@@ -1146,6 +1159,10 @@ class SidecarManager extends EventEmitter {
             await this.executeScheduledJob(sidecar);
             return { message: `Triggered scheduled job for '${cleanId}'` };
         } else {
+            const currentWorker = this.runningWorkers.get(cleanId);
+            if (currentWorker) {
+                currentWorker.restartCount = 0;
+            }
             this.startWorker(sidecar);
             return { message: `Restarted worker '${cleanId}'` };
         }

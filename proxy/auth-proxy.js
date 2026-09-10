@@ -132,15 +132,21 @@ const server = http.createServer(async (req, res) => {
                     const isHttps = req.headers['x-forwarded-proto'] === 'https' || req.socket?.encrypted;
                     const secureFlag = isHttps ? '; Secure' : '';
 
+                    const redirectTarget = params.get('redirect') || parsedUrl.searchParams.get('redirect') || '/?useWebSocket=true';
+                    const safeRedirect = (redirectTarget.startsWith('/') && !redirectTarget.startsWith('//'))
+                        ? redirectTarget
+                        : '/?useWebSocket=true';
+
                     res.writeHead(302, {
                         'Set-Cookie': `antigravity_session=${sessionToken}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax${secureFlag}`,
-                        'Location': '/?useWebSocket=true'
+                        'Location': safeRedirect
                     });
                     res.end();
                 } else {
                     recordFailedAttempt(clientIp);
+                    const redirectTarget = params.get('redirect') || parsedUrl.searchParams.get('redirect') || '';
                     res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
-                    res.end(renderLoginPage('Incorrect password. Please try again.'));
+                    res.end(renderLoginPage('Incorrect password. Please try again.', redirectTarget));
                 }
             } catch (err) {
                 if (err.message === 'Payload Too Large') {
@@ -156,13 +162,17 @@ const server = http.createServer(async (req, res) => {
 
         // 4. Check Authentication for ALL other routes (/sidecars, /ide, /terminal, /, /api/*, etc.)
         if (!isAuthenticated(req)) {
-            if (parsedUrl.pathname.startsWith('/api/')) {
+            if (parsedUrl.pathname.startsWith('/api/') ||
+                parsedUrl.pathname.endsWith('.js') ||
+                parsedUrl.pathname.endsWith('.css') ||
+                parsedUrl.pathname.endsWith('.json') ||
+                parsedUrl.pathname.endsWith('.wasm')) {
                 res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
                 res.end(JSON.stringify({ error: 'Unauthorized. Please sign in.' }));
                 return;
             }
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(renderLoginPage());
+            res.end(renderLoginPage('', req.url));
             return;
         }
 

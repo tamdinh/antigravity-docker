@@ -20,11 +20,16 @@ services:
       - HOST_SSH_HOST=host.docker.internal
       - HOST_SSH_PORT=22
       - HOST_SSH_DIR=
-      - GIT_USER_NAME: "${GIT_USER_NAME}"
-      - GIT_USER_EMAIL: "${GIT_USER_EMAIL}"
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - antigravity-workspace:/workspace
       - antigravity-gemini:/home/developer/.gemini
       - antigravity-ssh:/home/developer/.ssh
+
+volumes:
+  antigravity-workspace:
+  antigravity-gemini:
+  antigravity-ssh:

@@ -367,7 +367,7 @@ test('Sidecar Manager - HTTP Proxy Integration', async (t) => {
     }
 });
 
-test('Sidecar Manager - Plugin Sidecars & Adjacent Binaries', async (t) => {
+test('Sidecar Manager - Plugin Sidecars & Adjacent Binaries', { skip: process.platform === 'win32' ? 'Direct execution of Linux shell binaries requires container environment' : false }, async (t) => {
     const HOME_DIR = process.env.HOME || '/home/developer';
     const GEMINI_CONFIG_DIR = process.env.GEMINI_CONFIG_DIR || path.join(HOME_DIR, '.gemini/config');
     const PLUGINS_DIR = path.join(GEMINI_CONFIG_DIR, 'plugins');

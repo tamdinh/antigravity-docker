@@ -18,7 +18,7 @@ version: '3.8'
 
 services:
   antigravity:
-    image: jklinker/antigravity-docker:latest
+    image: tamdinh/antigravity-docker:latest
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -35,13 +35,19 @@ services:
       - HOST_SSH_HOST=host.docker.internal
       - HOST_SSH_PORT=22
       - HOST_SSH_DIR=<host-directory-path>
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - <location-of-projects>:/workspace
-      - <location-of-config>:/home/developer/.gemini
-      - <location-of-ssh>:/home/developer/.ssh
-      - <location-of-gitconfig>:/home/developer/.gitconfig
+      - antigravity-workspace:/workspace
+      - antigravity-gemini:/home/developer/.gemini
+      - antigravity-ssh:/home/developer/.ssh
+
+volumes:
+  antigravity-workspace:
+  antigravity-gemini:
+  antigravity-ssh:
 ```
 
 ---
@@ -65,6 +71,8 @@ services:
 | `HOST_SSH_HOST` | `host.docker.internal` | Hostname/IP used by Web Terminal to reach the host machine. |
 | `HOST_SSH_PORT` | `22` | SSH port on the host machine. |
 | `HOST_SSH_DIR` | *(host user home)* | *(Optional)* Absolute directory on the host machine to automatically `cd` into when opening the Web Terminal. |
+| `GIT_USER_NAME` | *(empty)* | Optional Git user.name configured globally for developer commits. |
+| `GIT_USER_EMAIL` | *(empty)* | Optional Git user.email configured globally for developer commits. |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 
@@ -93,7 +101,7 @@ docker compose run --rm antigravity setup
 ```bash
 docker run -it --rm \
   -v "<location-of-config>:/home/developer/.gemini" \
-  jklinker/antigravity-docker:latest setup
+  tamdinh/antigravity-docker:latest setup
 ```
 
 1. Open the Google sign-in URL shown in the terminal.
@@ -223,8 +231,8 @@ To disable blocking and allow all telemetry, set `BLOCK_TELEMETRY=false` in your
 If you want to build the Docker image from source and push it to Docker Hub:
 
 ```bash
-docker build -t jklinker/antigravity-docker:latest .
-docker push jklinker/antigravity-docker:latest
+docker build -t tamdinh/antigravity-docker:latest .
+docker push tamdinh/antigravity-docker:latest
 ```
 
 > [!TIP]
@@ -232,5 +240,5 @@ docker push jklinker/antigravity-docker:latest
 > as `linux/amd64` and `linux/arm64` for Apple Silicon or ARM servers) using
 > Docker Buildx:
 > ```bash
-> docker buildx build --platform linux/amd64,linux/arm64 -t jklinker/antigravity-docker:latest --push .
+> docker buildx build --platform linux/amd64,linux/arm64 -t tamdinh/antigravity-docker:latest --push .
 > ```

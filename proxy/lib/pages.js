@@ -1146,11 +1146,13 @@ function renderStatusPill(type, label, labelId = '') {
 }
 
 // Modern Google Antigravity Dark Theme Login Page HTML
-function renderLoginPage(error = '') {
+function renderLoginPage(error = '', redirect = '') {
     const statusPill = renderStatusPill('success', 'Gateway Secured');
+    const redirectInput = redirect ? `<input type="hidden" name="redirect" value="${redirect.replace(/"/g, '&quot;')}">` : '';
 
     const bodyHtml = `
         <form method="POST" action="/__auth/login">
+            ${redirectInput}
             <div class="form-group">
                 <div class="label-row">
                     <label for="password">Password</label>
