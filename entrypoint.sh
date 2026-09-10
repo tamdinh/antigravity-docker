@@ -213,6 +213,57 @@ fi
 # Configure SSH directory, permissions, and client defaults
 SSH_DIR="/home/${DEVELOPER_USER}/.ssh"
 mkdir -p "$SSH_DIR"
+
+# 1. Import SSH Private Key from environment variables if provided
+RAW_SSH_KEY="${SSH_PRIVATE_KEY:-${GIT_SSH_KEY:-}}"
+if [ -n "$RAW_SSH_KEY" ]; then
+    if echo "$RAW_SSH_KEY" | grep -qv "BEGIN " && echo "$RAW_SSH_KEY" | base64 -d 2>/dev/null | grep -q "BEGIN "; then
+        echo "$RAW_SSH_KEY" | base64 -d > "$SSH_DIR/id_ed25519"
+    else
+        printf "%s\n" "$RAW_SSH_KEY" > "$SSH_DIR/id_ed25519"
+    fi
+    ssh-keygen -y -f "$SSH_DIR/id_ed25519" > "$SSH_DIR/id_ed25519.pub" 2>/dev/null || true
+fi
+
+# 2. Recover any keys accidentally generated in /root/.ssh
+if ls /root/.ssh/id_* 1>/dev/null 2>&1; then
+    for k in /root/.ssh/id_*; do
+        b="$(basename "$k")"
+        if [ ! -f "$SSH_DIR/$b" ]; then
+            cp "$k" "$SSH_DIR/$b"
+        fi
+    done
+fi
+
+# 3. Automatically generate a dedicated ed25519 SSH keypair if no private key exists
+HAS_SSH_KEY=false
+for k in "$SSH_DIR"/id_* "$SSH_DIR"/*.pem "$SSH_DIR"/*.key; do
+    if [ -f "$k" ]; then
+        case "$k" in
+            *.pub) ;;
+            *) HAS_SSH_KEY=true; break ;;
+        esac
+    fi
+done
+
+if [ "$HAS_SSH_KEY" = "false" ]; then
+    ssh-keygen -t ed25519 -C "antigravity-container" -f "$SSH_DIR/id_ed25519" -N "" >/dev/null 2>&1 || true
+fi
+
+# 4. Ensure public key exists for all private keys
+for k in "$SSH_DIR"/id_*; do
+    if [ -f "$k" ]; then
+        case "$k" in
+            *.pub) ;;
+            *)
+                if [ ! -f "${k}.pub" ]; then
+                    ssh-keygen -y -f "$k" > "${k}.pub" 2>/dev/null || true
+                fi
+                ;;
+        esac
+    fi
+done
+
 chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
@@ -238,6 +289,19 @@ if [ ! -f "$SSH_DIR/known_hosts" ] || ! grep -q "github.com" "$SSH_DIR/known_hos
     ssh-keyscan -t ed25519,rsa gitlab.com >> "$SSH_DIR/known_hosts" 2>/dev/null || true
     chown ${DEVELOPER_USER}:${DEVELOPER_USER} "$SSH_DIR/known_hosts" 2>/dev/null || true
     chmod 644 "$SSH_DIR/known_hosts" 2>/dev/null || true
+fi
+
+# Log the active public key to console for easy GitHub authorization
+PRIMARY_PUB_KEY=$(cat "$SSH_DIR/id_ed25519.pub" 2>/dev/null || cat "$SSH_DIR"/id_*.pub 2>/dev/null | head -n 1 || true)
+if [ -n "$PRIMARY_PUB_KEY" ]; then
+    echo "==================================================================="
+    echo " 🔑 Antigravity Git SSH Public Key:"
+    echo " $PRIMARY_PUB_KEY"
+    echo "-------------------------------------------------------------------"
+    echo " 👉 To clone/push private Git repos, add this key to your account:"
+    echo "    GitHub: https://github.com/settings/keys"
+    echo "    GitLab: https://gitlab.com/-/profile/keys"
+    echo "==================================================================="
 fi
 
 # Ensure developer ownership for .gitconfig if present

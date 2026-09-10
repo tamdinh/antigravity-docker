@@ -25,6 +25,7 @@ services:
       - HOST_SSH_DIR=${HOST_SSH_DIR:-}
       - GIT_USER_NAME=${GIT_USER_NAME:-}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
