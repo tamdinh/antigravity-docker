@@ -1,6 +1,4 @@
-'use strict';
-
-const { AUTH_PASSWORD, TRUST_PROXY } = require('./config');
+const { getAuthPassword, TRUST_PROXY } = require('./config');
 
 // In-Memory Session Store: Map<sessionToken, { createdAt: number, expiresAt: number }>
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -84,7 +82,8 @@ function parseCookies(req) {
 
 // Check if request is authenticated
 function isAuthenticated(req) {
-    if (!AUTH_PASSWORD) return true; // No password configured -> open access
+    const password = getAuthPassword();
+    if (!password) return true; // No password configured -> open access
     const cookies = parseCookies(req);
     const token = cookies['antigravity_session'];
     if (!token) return false;

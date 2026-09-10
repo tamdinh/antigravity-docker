@@ -14,6 +14,7 @@ services:
       - RC_NAME=server-agent
       - AGY_PORT=4400
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
+      - TRUST_PROXY=${TRUST_PROXY:-true}
       - BLOCK_TELEMETRY=true
       - ENABLE_IDE=true
       - ENABLE_TERMINAL=true

@@ -215,3 +215,119 @@ test('Security - Body Parser & Multibyte Handling (SEC-16)', async (t) => {
         }, /Payload Too Large/);
     });
 });
+
+test('Security - Dynamic Password & Session Lifecycle', async (t) => {
+    const TEST_PORT = 15577;
+    const tmpDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'agy-sec-test-'));
+    const passFile = path.join(tmpDir, 'auth_password');
+
+    // Initially start with NO password in env, pointing to passFile which does not exist yet
+    const proxyProc = spawn(process.execPath, [path.join(__dirname, '../proxy/auth-proxy.js')], {
+        env: {
+            ...process.env,
+            AGY_PORT: String(TEST_PORT),
+            AUTH_PASSWORD: '',
+            AUTH_PASSWORD_FILE: passFile,
+            RC_NAME: 'test-agent',
+            INITIAL_TARGET_PORT: '49998',
+            TRUST_PROXY: 'true'
+        },
+        stdio: 'pipe'
+    });
+
+    await new Promise((resolve) => {
+        proxyProc.stdout.on('data', (d) => {
+            if (d.toString().includes('Listening on')) resolve();
+        });
+        setTimeout(resolve, 1500);
+    });
+
+    function makeRequest(reqPath, options = {}) {
+        return new Promise((resolve, reject) => {
+            const req = http.request({
+                hostname: '127.0.0.1',
+                port: TEST_PORT,
+                path: reqPath,
+                method: options.method || 'GET',
+                headers: options.headers || {}
+            }, (res) => {
+                let data = '';
+                res.on('data', chunk => data += chunk);
+                res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+            });
+            req.on('error', reject);
+            if (options.body) req.write(options.body);
+            req.end();
+        });
+    }
+
+    try {
+        await t.test('access is open when no password is set, and shows Unprotected badge in UI injection', async () => {
+            const res = await makeRequest('/sidecars');
+            assert.equal(res.status, 200);
+            assert.ok(res.body.includes('Sidecar Manager'));
+
+            const { buildInjectedScript } = require('../proxy/lib/ui-injection.js');
+            const script = buildInjectedScript();
+            assert.ok(script.includes('Unprotected'));
+        });
+
+        await t.test('dynamically activates password protection when password file is written', async () => {
+            // Write password to file dynamically
+            fs.writeFileSync(passFile, 'new-dynamic-secret-pass', 'utf8');
+
+            // Access to protected route should now require authentication
+            const protectedRes = await makeRequest('/sidecars');
+            assert.equal(protectedRes.status, 200);
+            assert.ok(protectedRes.body.includes('Unlock Workspace'));
+
+            // Login with correct password
+            const loginRes = await makeRequest('/__auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'password=new-dynamic-secret-pass'
+            });
+            assert.equal(loginRes.status, 302);
+            const cookie = loginRes.headers['set-cookie']?.[0]?.split(';')[0];
+            assert.ok(cookie && cookie.startsWith('antigravity_session='));
+
+            // Access with cookie now succeeds
+            const authedRes = await makeRequest('/sidecars', {
+                headers: { Cookie: cookie }
+            });
+            assert.equal(authedRes.status, 200);
+            assert.ok(authedRes.body.includes('Sidecar Manager'));
+
+            // Check UI injection now reflects protected state (Sign Out button)
+            const origPassFile = process.env.AUTH_PASSWORD_FILE;
+            process.env.AUTH_PASSWORD_FILE = passFile;
+            try {
+                const { buildInjectedScript } = require('../proxy/lib/ui-injection.js');
+                const script = buildInjectedScript();
+                assert.ok(script.includes('Sign Out'));
+                assert.ok(script.includes('/logout'));
+            } finally {
+                process.env.AUTH_PASSWORD_FILE = origPassFile;
+            }
+
+            // Test /logout endpoint clears cookie and redirects to login
+            const logoutRes = await makeRequest('/logout', {
+                headers: { Cookie: cookie }
+            });
+            assert.equal(logoutRes.status, 302);
+            assert.equal(logoutRes.headers['location'], '/__auth/login');
+            const clearCookie = logoutRes.headers['set-cookie']?.[0];
+            assert.ok(clearCookie && clearCookie.includes('Max-Age=0'));
+
+            // Subsequent request with old cookie fails
+            const unauthedAgain = await makeRequest('/sidecars', {
+                headers: { Cookie: cookie }
+            });
+            assert.ok(unauthedAgain.body.includes('Unlock Workspace'));
+        });
+    } finally {
+        proxyProc.kill('SIGKILL');
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+    }
+});
+

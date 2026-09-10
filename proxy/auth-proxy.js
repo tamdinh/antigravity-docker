@@ -5,7 +5,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 
-const { LISTEN_PORT, AGY_HUB_PORT, AUTH_PASSWORD, PORT_FILE, ENABLE_TERMINAL, ENABLE_IDE } = require('./lib/config');
+const { LISTEN_PORT, AGY_HUB_PORT, getAuthPassword, PORT_FILE, ENABLE_TERMINAL, ENABLE_IDE } = require('./lib/config');
 const { isAuthenticated, activeSessions, loginRateLimiter, parseCookies, getClientIp, checkRateLimit, recordFailedAttempt, SESSION_TTL_MS } = require('./lib/session');
 const { safeCompare, applySecurityHeaders, readRequestBody, readJsonBody } = require('./lib/security');
 const { isFaviconRequest, handleFaviconRequest } = require('./lib/favicon');
@@ -90,16 +90,28 @@ const server = http.createServer(async (req, res) => {
         }
 
         // 2. Handle Logout GET or POST
-        if (parsedUrl.pathname === '/__auth/logout') {
+        if (parsedUrl.pathname === '/__auth/logout' || parsedUrl.pathname === '/logout') {
             const cookies = parseCookies(req);
             if (cookies['antigravity_session']) {
                 activeSessions.delete(cookies['antigravity_session']);
             }
             res.writeHead(302, {
                 'Set-Cookie': 'antigravity_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
-                'Location': '/__auth/login'
+                'Location': getAuthPassword() ? '/__auth/login' : '/'
             });
             res.end();
+            return;
+        }
+
+        // 3. Handle Login GET
+        if (parsedUrl.pathname === '/__auth/login' && req.method === 'GET') {
+            if (!getAuthPassword() || isAuthenticated(req)) {
+                res.writeHead(302, { 'Location': '/' });
+                res.end();
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(renderLoginPage('', parsedUrl.searchParams.get('redirect') || ''));
             return;
         }
 
@@ -118,8 +130,9 @@ const server = http.createServer(async (req, res) => {
                 const body = await readRequestBody(req, 16 * 1024);
                 const params = new URLSearchParams(body);
                 const enteredPassword = params.get('password') || '';
+                const currentPassword = getAuthPassword();
 
-                if (AUTH_PASSWORD && safeCompare(enteredPassword, AUTH_PASSWORD)) {
+                if (currentPassword && safeCompare(enteredPassword, currentPassword)) {
                     loginRateLimiter.delete(clientIp);
 
                     const sessionToken = crypto.randomBytes(32).toString('hex');
@@ -392,5 +405,5 @@ if (sidecarManager) {
 }
 
 server.listen(LISTEN_PORT, '0.0.0.0', () => {
-    console.log(`[Proxy Gateway] 🛡️  Listening on 0.0.0.0:${LISTEN_PORT} (Password Protection: ${AUTH_PASSWORD ? 'ENABLED' : 'DISABLED'})`);
+    console.log(`[Proxy Gateway] 🛡️  Listening on 0.0.0.0:${LISTEN_PORT} (Password Protection: ${getAuthPassword() ? 'ENABLED' : 'DISABLED'})`);
 });

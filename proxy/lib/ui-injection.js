@@ -1,11 +1,12 @@
 'use strict';
 
-const { ENABLE_IDE, ENABLE_TERMINAL } = require('./config');
+const { ENABLE_IDE, ENABLE_TERMINAL, getAuthPassword } = require('./config');
 
 // SVG icons used in the injected sidebar buttons
 const SIDECAR_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`;
 const IDE_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`;
 const TERMINAL_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>`;
+const LOGOUT_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`;
 const EXTERNAL_ICON_SVG = `<svg class="agy-injected-external-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 
 // Injected CSS Styles for Antigravity UI buttons
@@ -85,6 +86,38 @@ const INJECTED_UI_STYLES = `
     color: #86efac;
 }
 
+.agy-injected-btn-logout .agy-injected-btn-icon {
+    color: #f87171;
+}
+
+.agy-injected-btn-logout:hover {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.35);
+}
+
+.agy-injected-btn-logout:hover .agy-injected-btn-icon {
+    color: #fca5a5;
+}
+
+.agy-injected-badge-warn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
+    cursor: default;
+    user-select: none;
+}
+
 .agy-injected-btn-text {
     flex-grow: 1;
     white-space: nowrap;
@@ -135,6 +168,16 @@ function buildInjectedScript() {
                 \${EXTERNAL_ICON_SVG}
             </a>` : '';
 
+    const hasAuth = !!getAuthPassword();
+    const authButtonHtml = hasAuth ? `
+            <a href="/logout" class="agy-injected-btn agy-injected-btn-logout" title="Sign out of Antigravity">
+                \${LOGOUT_ICON_SVG}
+                <span class="agy-injected-btn-text">Sign Out</span>
+            </a>` : `
+            <div class="agy-injected-badge-warn" title="Warning: No AUTH_PASSWORD configured. Anyone on the internet can access this instance. Set AUTH_PASSWORD or run set-password to secure it.">
+                <span>⚠️ Unprotected</span>
+            </div>`;
+
     return `
 (function initAntigravityCustomTools() {
     const SIDECAR_ICON_SVG = '<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
@@ -146,7 +189,7 @@ function buildInjectedScript() {
         const container = document.createElement('div');
         container.id = 'agy-injected-tools-group';
         container.className = 'agy-injected-tools-group';
-        container.innerHTML = \`<div class="agy-injected-tools-label">Workspace Tools</div>${sidecarButtonHtml}${ideButtonHtml}${termButtonHtml}\`;
+        container.innerHTML = \`<div class="agy-injected-tools-label">Workspace Tools</div>${sidecarButtonHtml}${ideButtonHtml}${termButtonHtml}${authButtonHtml}\`;
         return container;
     }
 
