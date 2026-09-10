@@ -193,10 +193,6 @@ else
     fi
 fi
 
-# Fix ownership and ensure read/write permissions on mounted volume
-chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$GEMINI_DIR" "/home/${DEVELOPER_USER}"
-chmod -R u+rwX,g+rwX "$GEMINI_DIR" || true
-
 # Bi-directionally synchronize token files if one exists
 if [ -s "$GEMINI_DIR/jetski-standalone-oauth-token" ] && [ ! -s "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" ]; then
     mkdir -p "$GEMINI_DIR/antigravity-cli"
@@ -204,6 +200,10 @@ if [ -s "$GEMINI_DIR/jetski-standalone-oauth-token" ] && [ ! -s "$GEMINI_DIR/ant
 elif [ -s "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" ] && [ ! -s "$GEMINI_DIR/jetski-standalone-oauth-token" ]; then
     cp "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" "$GEMINI_DIR/jetski-standalone-oauth-token"
 fi
+
+# Fix ownership and ensure read/write permissions on mounted volume
+chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$GEMINI_DIR" "/home/${DEVELOPER_USER}"
+chmod -R u+rwX,g+rwX "$GEMINI_DIR" || true
 chmod 600 "$GEMINI_DIR"/jetski-standalone-oauth-token "$GEMINI_DIR"/antigravity-cli/antigravity-oauth-token 2>/dev/null || true
 
 if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ] || ! gosu "$DEVELOPER_USER" test -w "$WORKSPACE_DIR" 2>/dev/null; then
