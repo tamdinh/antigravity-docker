@@ -151,8 +151,22 @@ function proxyToIde(req, res, targetPath) {
     if (res.socket) res.socket.setNoDelay(true);
 
     const proxyHeaders = filterHopByHop(req.headers);
-    proxyHeaders['host'] = `localhost:${IDE_PORT}`;
-    proxyHeaders['origin'] = `http://localhost:${IDE_PORT}`;
+    const hostHeader = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${IDE_PORT}`;
+    const protoHeader = req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http');
+
+    proxyHeaders['host'] = hostHeader;
+    proxyHeaders['x-forwarded-host'] = hostHeader;
+    proxyHeaders['x-forwarded-proto'] = protoHeader;
+    proxyHeaders['x-forwarded-prefix'] = '/ide';
+    if (req.headers['origin']) {
+        proxyHeaders['origin'] = req.headers['origin'];
+    } else {
+        delete proxyHeaders['origin'];
+    }
+
+    // Allow code-server to manage its own Content-Security-Policy & Frame Options
+    res.removeHeader('Content-Security-Policy');
+    res.removeHeader('X-Frame-Options');
 
     // Request uncompressed body only for top-level HTML requests to preserve gzip/brotli on IDE bundles
     const wantsHtml = (req.headers.accept || '').includes('text/html') || targetPath === '/' || targetPath.startsWith('/?');
@@ -361,7 +375,17 @@ function handleWebSocketUpgrade(req, clientSocket, head, targetPort) {
             return;
         }
         wsTargetPort = IDE_PORT;
-        wsTargetPath = req.url.replace(/^\/ide/, '') || '/';
+        let p = req.url.replace(/^\/ide/, '');
+        if (!p.startsWith('/')) p = '/' + p;
+        wsTargetPath = p;
+    } else if (parsedUrl.pathname.startsWith('/vscode-remote-resource')) {
+        if (!ENABLE_IDE) {
+            clientSocket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+            clientSocket.destroy();
+            return;
+        }
+        wsTargetPort = IDE_PORT;
+        wsTargetPath = req.url;
     } else {
         if (!targetPort) {
             clientSocket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
@@ -372,12 +396,26 @@ function handleWebSocketUpgrade(req, clientSocket, head, targetPort) {
     }
 
     clientSocket.setNoDelay(true);
+    clientSocket.setTimeout(0);
+    if (clientSocket.setKeepAlive) clientSocket.setKeepAlive(true, 15000);
 
     const proxyHeaders = { ...req.headers };
-    proxyHeaders['host'] = `localhost:${wsTargetPort}`;
-    proxyHeaders['origin'] = `http://localhost:${wsTargetPort}`;
-    if (proxyHeaders['referer']) {
-        proxyHeaders['referer'] = proxyHeaders['referer'].replace(/^https?:\/\/[^/]+/, `http://localhost:${wsTargetPort}`);
+    if (wsTargetPort === IDE_PORT) {
+        const hostHeader = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${IDE_PORT}`;
+        const protoHeader = req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http');
+        proxyHeaders['host'] = hostHeader;
+        proxyHeaders['x-forwarded-host'] = hostHeader;
+        proxyHeaders['x-forwarded-proto'] = protoHeader;
+        proxyHeaders['x-forwarded-prefix'] = '/ide';
+        if (req.headers['origin']) {
+            proxyHeaders['origin'] = req.headers['origin'];
+        }
+    } else {
+        proxyHeaders['host'] = `localhost:${wsTargetPort}`;
+        proxyHeaders['origin'] = `http://localhost:${wsTargetPort}`;
+        if (proxyHeaders['referer']) {
+            proxyHeaders['referer'] = proxyHeaders['referer'].replace(/^https?:\/\/[^/]+/, `http://localhost:${wsTargetPort}`);
+        }
     }
 
     const upstreamReq = http.request({
@@ -399,6 +437,8 @@ function handleWebSocketUpgrade(req, clientSocket, head, targetPort) {
         clientSocket.removeListener('error', earlyClientErrorHandler);
         clientSocket.removeListener('close', earlyClientErrorHandler);
         upstreamSocket.setNoDelay(true);
+        upstreamSocket.setTimeout(0);
+        if (upstreamSocket.setKeepAlive) upstreamSocket.setKeepAlive(true, 15000);
 
         const rawResponse = formatRawHttpResponse(101, 'Switching Protocols', upstreamRes.headers);
         clientSocket.write(rawResponse);

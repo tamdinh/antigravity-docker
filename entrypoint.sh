@@ -354,6 +354,7 @@ case "$1" in
                 --auth none \
                 --disable-telemetry \
                 --disable-update-check \
+                --disable-workspace-trust \
                 "$WORKSPACE_DIR" > /tmp/code-server.log 2>&1 &
         else
             echo " ⚪ Web IDE is DISABLED (ENABLE_IDE=false)"

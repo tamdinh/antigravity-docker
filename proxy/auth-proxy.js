@@ -320,8 +320,22 @@ const server = http.createServer(async (req, res) => {
                 res.end();
                 return;
             }
-            const strippedPath = req.url.replace(/^\/ide/, '') || '/';
+            let strippedPath = req.url.replace(/^\/ide/, '');
+            if (!strippedPath.startsWith('/')) {
+                strippedPath = '/' + strippedPath;
+            }
             proxyToIde(req, res, strippedPath);
+            return;
+        }
+
+        // 9b. Handle root-level /vscode-remote-resource requests from code-server webviews and extensions
+        if (parsedUrl.pathname.startsWith('/vscode-remote-resource')) {
+            if (!ENABLE_IDE) {
+                res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+                res.end('Web IDE is disabled (ENABLE_IDE=false)');
+                return;
+            }
+            proxyToIde(req, res, req.url);
             return;
         }
 
