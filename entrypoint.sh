@@ -3,7 +3,7 @@ set -e
 
 DEVELOPER_USER="developer"
 GEMINI_DIR="/home/${DEVELOPER_USER}/.gemini"
-TOKEN_FILE="${GEMINI_DIR}/jetski-standalone-oauth-token"
+TOKEN_FILE="${GEMINI_DIR}/antigravity-cli/antigravity-oauth-token"
 WORKSPACE_DIR="/workspace"
 
 # Instance name and target port
@@ -359,7 +359,8 @@ case "$1" in
 
         if [ ! -s "$TOKEN_FILE" ]; then
             echo "==================================================================="
-            echo " ⚠️  NOTICE: Antigravity OAuth Token not found!"
+            echo " ⚠️  NOTICE: Antigravity OAuth Token not found at:"
+            echo " $TOKEN_FILE"
             echo "-------------------------------------------------------------------"
             echo " The container is starting in Remote Control mode."
             echo " If this is your first run, check the logs or run the setup command:"
