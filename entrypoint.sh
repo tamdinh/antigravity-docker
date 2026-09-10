@@ -363,6 +363,11 @@ case "$1" in
         # 2. Start ttyd (Web Terminal) on 127.0.0.1:7681 if enabled
         if [ "$ENABLE_TERMINAL" = "true" ] || [ "$ENABLE_TERMINAL" = "1" ] || [ "$ENABLE_TERMINAL" = "yes" ] || [ "$ENABLE_TERMINAL" = "on" ]; then
             echo " 🟢 Starting ttyd Web Terminal on internal port 7681"
+            export TERMINAL_MODE="${TERMINAL_MODE:-auto}"
+            export HOST_SSH_USER="${HOST_SSH_USER:-}"
+            export HOST_SSH_HOST="${HOST_SSH_HOST:-host.docker.internal}"
+            export HOST_SSH_PORT="${HOST_SSH_PORT:-22}"
+            export HOST_SSH_DIR="${HOST_SSH_DIR:-}"
             gosu "$DEVELOPER_USER" ttyd \
                 -W \
                 -p 7681 \

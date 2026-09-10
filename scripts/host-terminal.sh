@@ -3,6 +3,28 @@
 
 set -e
 
+TERMINAL_MODE="${TERMINAL_MODE:-auto}"
+if [ "$ENABLE_HOST_SSH" = "false" ] || [ "$ENABLE_HOST_SSH" = "0" ] || [ "$ENABLE_HOST_SSH" = "no" ]; then
+    TERMINAL_MODE="container"
+fi
+
+start_container_shell() {
+    echo -e "\033[1;34m===================================================================\033[0m"
+    echo -e "\033[1;36m  🚀 Google Antigravity Container Terminal\033[0m"
+    echo -e "\033[1;34m===================================================================\033[0m"
+    echo -e " Mode: \033[1;32mContainer Shell (local)\033[0m"
+    echo -e " Working Directory: \033[1;36m/workspace\033[0m"
+    echo -e " User: \033[1;37m$(whoami)\033[0m"
+    echo -e " Available Tools: \033[0;36magy, git, node, python3, pip, pnpm\033[0m"
+    echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
+    cd /workspace 2>/dev/null || cd "$HOME"
+    exec /bin/bash -l
+}
+
+if [ "$TERMINAL_MODE" = "container" ] || [ "$TERMINAL_MODE" = "local" ]; then
+    start_container_shell
+fi
+
 # Configuration from environment or defaults
 HOST_USER="${HOST_SSH_USER:-}"
 HOST_ADDR="${HOST_SSH_HOST:-host.docker.internal}"
@@ -73,13 +95,38 @@ BASE_SSH_OPTS=(
     "${IDENTITY_ARGS[@]}"
 )
 
+KEY_COUNT=${#IDENTITY_ARGS[@]}
+
+# If in auto mode with no private keys and HOST_SSH_USER not explicitly defined, offer choice
+if [ "$TERMINAL_MODE" = "auto" ] && [ -z "$HOST_SSH_USER" ] && [ "$KEY_COUNT" -eq 0 ]; then
+    echo -e "\033[1;34m===================================================================\033[0m"
+    echo -e "\033[1;36m  🚀 Google Antigravity Terminal Gateway\033[0m"
+    echo -e "\033[1;34m===================================================================\033[0m"
+    echo -e " Host SSH is not configured (no SSH keys in ~/.ssh, HOST_SSH_USER not set)."
+    echo ""
+    echo -e "  \033[1;32m[1]\033[0m Start Container Shell (Bash in /workspace) \033[0;37m[Default]\033[0m"
+    echo -e "  \033[1;36m[2]\033[0m Connect to Host VPS via SSH\033[0m"
+    echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
+    read -t 5 -n 1 -r -p " Choose an option [1/2] (starting container shell in 5s): " CHOICE || true
+    echo ""
+
+    if [ "$CHOICE" != "2" ]; then
+        start_container_shell
+    fi
+
+    # User explicitly chose Host SSH
+    read -p " Enter Host SSH Username [root]: " INPUT_USER
+    HOST_USER="${INPUT_USER:-root}"
+    read -p " Enter Host SSH Address [${HOST_ADDR}]: " INPUT_ADDR
+    HOST_ADDR="${INPUT_ADDR:-$HOST_ADDR}"
+fi
+
 # Test SSH key-based connectivity first (non-interactive batch mode)
 if ssh -n -o BatchMode=yes -o ConnectTimeout=3 "${BASE_SSH_OPTS[@]}" "${HOST_USER}@${HOST_ADDR}" "true" 2>/dev/null; then
     echo -e " \033[1;32m✓ SSH key authentication successful!\033[0m"
     echo -e "\033[1;34m===================================================================\033[0m"
     exec ssh -t "${BASE_SSH_OPTS[@]}" "${HOST_USER}@${HOST_ADDR}" "$REMOTE_SHELL_CMD"
 else
-    KEY_COUNT=${#IDENTITY_ARGS[@]}
     if [ "$KEY_COUNT" -eq 0 ]; then
         echo -e "\033[1;33m⚠️  No SSH private keys found in ~/.ssh directory.\033[0m"
         echo -e " Ensure a persistent SSH volume is mounted (e.g. \033[0;37m./data/ssh:/home/developer/.ssh\033[0m)"
@@ -112,6 +159,6 @@ else
         echo -e "  3. Check permissions on host: chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys."
         echo ""
         read -p "Press Enter to start an internal container bash shell, or Ctrl+C to close: " _
-        exec /bin/bash
+        start_container_shell
     }
 fi
