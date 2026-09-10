@@ -6,6 +6,14 @@ GEMINI_DIR="/home/${DEVELOPER_USER}/.gemini"
 TOKEN_FILE="${GEMINI_DIR}/antigravity-cli/antigravity-oauth-token"
 WORKSPACE_DIR="/workspace"
 
+# Export user environment
+export HOME="/home/${DEVELOPER_USER}"
+export USER="${DEVELOPER_USER}"
+export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOPER_USER}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
+# Ensure root can access persistent config if needed
+ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
+
 # Instance name and target port
 INSTANCE_NAME="${RC_NAME:-server-agent}"
 TARGET_PORT="${AGY_PORT:-4400}"
@@ -188,6 +196,15 @@ fi
 # Fix ownership and ensure read/write permissions on mounted volume
 chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$GEMINI_DIR" "/home/${DEVELOPER_USER}"
 chmod -R u+rwX,g+rwX "$GEMINI_DIR" || true
+
+# Bi-directionally synchronize token files if one exists
+if [ -s "$GEMINI_DIR/jetski-standalone-oauth-token" ] && [ ! -s "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" ]; then
+    mkdir -p "$GEMINI_DIR/antigravity-cli"
+    cp "$GEMINI_DIR/jetski-standalone-oauth-token" "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token"
+elif [ -s "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" ] && [ ! -s "$GEMINI_DIR/jetski-standalone-oauth-token" ]; then
+    cp "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" "$GEMINI_DIR/jetski-standalone-oauth-token"
+fi
+chmod 600 "$GEMINI_DIR"/jetski-standalone-oauth-token "$GEMINI_DIR"/antigravity-cli/antigravity-oauth-token 2>/dev/null || true
 
 if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ] || ! gosu "$DEVELOPER_USER" test -w "$WORKSPACE_DIR" 2>/dev/null; then
     chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$WORKSPACE_DIR" || true
@@ -372,7 +389,7 @@ case "$1" in
         export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}"
         gosu "$DEVELOPER_USER" node /usr/local/bin/auth-proxy.js &
 
-        if [ ! -s "$TOKEN_FILE" ]; then
+        if [ ! -s "$TOKEN_FILE" ] && [ ! -s "$GEMINI_DIR/jetski-standalone-oauth-token" ]; then
             echo "==================================================================="
             echo " ⚠️  NOTICE: Antigravity OAuth Token not found at:"
             echo " $TOKEN_FILE"
