@@ -1,8 +1,9 @@
-version: '3.8'
-
 services:
   antigravity:
-    image: tamdinh/antigravity-docker:latest
+    image: ghcr.io/tamdinh/antigravity-docker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: antigravity
     restart: unless-stopped
     ports:

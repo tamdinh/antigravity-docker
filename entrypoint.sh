@@ -381,7 +381,7 @@ case "$1" in
             echo " If this is your first run, check the logs or run the setup command:"
             echo "   docker compose run --rm antigravity setup"
             echo " Or via standalone docker run:"
-            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini tamdinh/antigravity-docker:latest setup"
+            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini ghcr.io/tamdinh/antigravity-docker:latest setup"
             echo " Or open the sign-in URL shown below in your browser."
             echo "==================================================================="
         else

@@ -14,11 +14,12 @@ the host machine.
 Add this service to your `docker-compose.yml`:
 
 ```yaml
-version: '3.8'
-
 services:
   antigravity:
-    image: tamdinh/antigravity-docker:latest
+    image: ghcr.io/tamdinh/antigravity-docker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -101,7 +102,7 @@ docker compose run --rm antigravity setup
 ```bash
 docker run -it --rm \
   -v "<location-of-config>:/home/developer/.gemini" \
-  tamdinh/antigravity-docker:latest setup
+  ghcr.io/tamdinh/antigravity-docker:latest setup
 ```
 
 1. Open the Google sign-in URL shown in the terminal.
@@ -226,13 +227,17 @@ To disable blocking and allow all telemetry, set `BLOCK_TELEMETRY=false` in your
 
 ---
 
-## 🛠️ Building & Pushing to Docker Hub
+## 🛠️ Building & Pushing the Container
+ 
+The container image is automatically built and published to GitHub Container Registry on pushes to `main`:
+```bash
+docker pull ghcr.io/tamdinh/antigravity-docker:latest
+```
 
-If you want to build the Docker image from source and push it to Docker Hub:
+If you want to build the Docker image locally from source:
 
 ```bash
-docker build -t tamdinh/antigravity-docker:latest .
-docker push tamdinh/antigravity-docker:latest
+docker build -t ghcr.io/tamdinh/antigravity-docker:latest .
 ```
 
 > [!TIP]
@@ -240,5 +245,5 @@ docker push tamdinh/antigravity-docker:latest
 > as `linux/amd64` and `linux/arm64` for Apple Silicon or ARM servers) using
 > Docker Buildx:
 > ```bash
-> docker buildx build --platform linux/amd64,linux/arm64 -t tamdinh/antigravity-docker:latest --push .
+> docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/tamdinh/antigravity-docker:latest --push .
 > ```
