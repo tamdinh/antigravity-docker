@@ -201,9 +201,15 @@ function proxyToIde(req, res, targetPath) {
         const encoding = resHeaders['content-encoding'];
         const isUncompressed = !encoding || encoding === 'identity';
         const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isUncompressed;
-        if (isHtmlResponse && req.method === 'GET') {
+        const isMainIdeDocument = targetPath === '/' || targetPath.startsWith('/?');
+        if (isHtmlResponse && req.method === 'GET' && isMainIdeDocument) {
             interceptHtmlResponse(proxyRes, res, proxyRes.statusCode, resHeaders, replaceFaviconInHtml);
             return;
+        }
+
+        // Prevent browser strict MIME check errors on missing optional JS modules (e.g. vsda.js)
+        if (proxyRes.statusCode === 404 && targetPath.endsWith('.js')) {
+            resHeaders['content-type'] = 'application/javascript; charset=utf-8';
         }
 
         res.writeHead(proxyRes.statusCode, resHeaders);

@@ -17,6 +17,19 @@ test('Web IDE (code-server) Proxy Integration', async (t) => {
                 method: req.method,
                 headers: req.headers
             });
+            if (req.url.includes('vsda.js')) {
+                res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+                res.end('File not found');
+                return;
+            }
+            if (req.url.includes('webWorkerExtensionHostIframe.html')) {
+                res.writeHead(200, {
+                    'content-type': 'text/html; charset=utf-8',
+                    'content-security-policy': "default-src 'none';"
+                });
+                res.end('<!DOCTYPE html><html><head><title>ExtensionHost</title></head><body>Iframe</body></html>');
+                return;
+            }
             res.writeHead(200, {
                 'content-type': 'text/html; charset=utf-8',
                 'content-security-policy': "default-src 'self' https:;",
@@ -144,4 +157,75 @@ test('Web IDE (code-server) Proxy Integration', async (t) => {
             testProxy.close();
         }
     });
+
+    await t.test('proxyToIde does not inject favicons into sandboxed web worker iframes', async () => {
+        const testProxy = http.createServer((req, res) => {
+            proxyToIde(req, res, req.url.replace(/^\/ide/, '') || '/');
+        });
+
+        await new Promise((resolve) => testProxy.listen(0, '127.0.0.1', resolve));
+        const proxyPort = testProxy.address().port;
+
+        try {
+            const clientReq = http.request({
+                hostname: '127.0.0.1',
+                port: proxyPort,
+                path: '/ide/stable-123/static/out/vs/workbench/services/extensions/worker/webWorkerExtensionHostIframe.html',
+                method: 'GET',
+                headers: {
+                    'accept': 'text/html'
+                }
+            });
+
+            const res = await new Promise((resolve, reject) => {
+                clientReq.on('response', resolve);
+                clientReq.on('error', reject);
+                clientReq.end();
+            });
+
+            const chunks = [];
+            for await (const chunk of res) chunks.push(chunk);
+            const body = Buffer.concat(chunks).toString('utf8');
+
+            assert.equal(res.statusCode, 200);
+            assert.equal(body.includes('favicon.svg'), false, 'Favicon tags must NOT be injected into web worker iframes');
+            assert.equal(body.includes('favicon.ico'), false);
+            assert.equal(body.includes('apple-touch-icon'), false);
+        } finally {
+            testProxy.close();
+        }
+    });
+
+    await t.test('proxyToIde sets application/javascript MIME type on 404 for missing .js modules', async () => {
+        const testProxy = http.createServer((req, res) => {
+            proxyToIde(req, res, req.url.replace(/^\/ide/, '') || '/');
+        });
+
+        await new Promise((resolve) => testProxy.listen(0, '127.0.0.1', resolve));
+        const proxyPort = testProxy.address().port;
+
+        try {
+            const clientReq = http.request({
+                hostname: '127.0.0.1',
+                port: proxyPort,
+                path: '/ide/stable-123/static/node_modules/vsda/rust/web/vsda.js',
+                method: 'GET',
+                headers: {
+                    'accept': '*/*'
+                }
+            });
+
+            const res = await new Promise((resolve, reject) => {
+                clientReq.on('response', resolve);
+                clientReq.on('error', reject);
+                clientReq.end();
+            });
+
+            assert.equal(res.statusCode, 404);
+            assert.equal(res.headers['content-type'], 'application/javascript; charset=utf-8', 'Must return JS MIME type to prevent browser strict MIME error');
+        } finally {
+            testProxy.close();
+        }
+    });
 });
+
