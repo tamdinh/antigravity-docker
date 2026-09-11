@@ -39,13 +39,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Install Node.js 26 (Latest release line) and Package Managers (npm, pnpm, yarn, bun)
-RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
-    npm install -g pnpm yarn bun && \
+# 2. Install GitHub CLI (gh)
+RUN mkdir -p -m 755 /etc/apt/keyrings && \
+    wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gh && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. Install Python 3, pip, venv, and modern Python package managers (uv, poetry)
+# 3. Install Node.js 26 (Latest release line) and Package Managers (npm, pnpm, yarn, bun, vercel)
+RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    npm install -g pnpm yarn bun vercel && \
+    rm -rf /var/lib/apt/lists/*
+
+# 4. Install Python 3, pip, venv, and modern Python package managers (uv, poetry)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -55,7 +64,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir --break-system-packages uv poetry pipenv virtualenv
 
-# 4. Install code-server (VS Code Web IDE) and ttyd (Web Terminal)
+# 5. Install code-server (VS Code Web IDE) and ttyd (Web Terminal)
 RUN curl -fsSL https://code-server.dev/install.sh | sh && \
     ARCH="$(uname -m)" && \
     case "$ARCH" in \
@@ -66,7 +75,7 @@ RUN curl -fsSL https://code-server.dev/install.sh | sh && \
     curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.${TTYD_ARCH}" -o /usr/local/bin/ttyd && \
     chmod +x /usr/local/bin/ttyd
 
-# 5. Create non-root developer user
+# 6. Create non-root developer user
 ARG USERNAME=developer
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -86,7 +95,7 @@ RUN if id -u ubuntu >/dev/null 2>&1; then userdel -f -r ubuntu || true; fi && \
     echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} && \
     chmod 0440 /etc/sudoers.d/${USERNAME}
 
-# 6. Install Antigravity CLI (agy) for developer user
+# 7. Install Antigravity CLI (agy) for developer user
 USER ${USERNAME}
 ENV HOME=/home/${USERNAME}
 WORKDIR /home/${USERNAME}

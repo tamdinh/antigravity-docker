@@ -38,6 +38,8 @@ services:
       - HOST_SSH_DIR=<host-directory-path>
       - GIT_USER_NAME=${GIT_USER_NAME:-}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - VERCEL_TOKEN=${VERCEL_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -74,6 +76,8 @@ volumes:
 | `HOST_SSH_DIR` | *(host user home)* | *(Optional)* Absolute directory on the host machine to automatically `cd` into when opening the Web Terminal. |
 | `GIT_USER_NAME` | *(empty)* | Optional Git user.name configured globally for developer commits. |
 | `GIT_USER_EMAIL` | *(empty)* | Optional Git user.email configured globally for developer commits. |
+| `GH_TOKEN` / `GITHUB_TOKEN` | *(empty)* | Optional GitHub Personal Access Token for GitHub CLI (`gh`). |
+| `VERCEL_TOKEN` | *(empty)* | Optional Vercel API Token for Vercel CLI deployments. |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 

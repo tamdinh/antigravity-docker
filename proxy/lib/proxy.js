@@ -1,6 +1,7 @@
 'use strict';
 
 const http = require('node:http');
+const zlib = require('node:zlib');
 const { TERMINAL_PORT, IDE_PORT, ENABLE_IDE, ENABLE_TERMINAL } = require('./config');
 const { replaceFaviconInHtml } = require('./favicon');
 const { renderServiceStartingPage } = require('./pages');
@@ -78,9 +79,31 @@ function interceptHtmlResponse(proxyRes, res, statusCode, resHeaders, transform)
             res.end();
             return;
         }
-        let html = Buffer.concat(chunks).toString('utf8');
+        let rawBuffer = Buffer.concat(chunks);
+        const encoding = (resHeaders['content-encoding'] || '').toLowerCase();
+        if (encoding === 'gzip') {
+            try {
+                rawBuffer = zlib.gunzipSync(rawBuffer);
+            } catch (e) {
+                console.error('[Proxy Gateway] Failed to decompress gzipped HTML:', e.message);
+            }
+        } else if (encoding === 'deflate') {
+            try {
+                rawBuffer = zlib.inflateSync(rawBuffer);
+            } catch (e) {
+                console.error('[Proxy Gateway] Failed to decompress deflated HTML:', e.message);
+            }
+        } else if (encoding === 'br') {
+            try {
+                rawBuffer = zlib.brotliDecompressSync(rawBuffer);
+            } catch (e) {
+                console.error('[Proxy Gateway] Failed to decompress brotli HTML:', e.message);
+            }
+        }
+
+        let html = rawBuffer.toString('utf8');
         html = transform(html);
-        // Update content-length to reflect transformed HTML size, then send
+        // Update content-length to reflect transformed HTML size, then send uncompressed
         resHeaders['content-length'] = Buffer.byteLength(html, 'utf8');
         delete resHeaders['content-encoding'];
         res.writeHead(statusCode, resHeaders);
@@ -198,9 +221,9 @@ function proxyToIde(req, res, targetPath) {
         }
         resHeaders['x-accel-buffering'] = 'no';
 
-        const encoding = resHeaders['content-encoding'];
-        const isUncompressed = !encoding || encoding === 'identity';
-        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isUncompressed;
+        const encoding = (resHeaders['content-encoding'] || '').toLowerCase();
+        const isSupportedEncoding = !encoding || encoding === 'identity' || encoding === 'gzip' || encoding === 'deflate' || encoding === 'br';
+        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isSupportedEncoding;
         const isMainIdeDocument = targetPath === '/' || targetPath.startsWith('/?');
         if (isHtmlResponse && req.method === 'GET' && isMainIdeDocument) {
             interceptHtmlResponse(proxyRes, res, proxyRes.statusCode, resHeaders, replaceFaviconInHtml);
@@ -283,9 +306,9 @@ function proxyToUpstream(req, res, targetPort, sidecarManager) {
 
         resHeaders['x-accel-buffering'] = 'no';
 
-        const encoding = resHeaders['content-encoding'];
-        const isUncompressed = !encoding || encoding === 'identity';
-        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isUncompressed;
+        const encoding = (resHeaders['content-encoding'] || '').toLowerCase();
+        const isSupportedEncoding = !encoding || encoding === 'identity' || encoding === 'gzip' || encoding === 'deflate' || encoding === 'br';
+        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isSupportedEncoding;
 
         // INTERCEPT HTML RESPONSES TO INJECT WORKSPACE TOOLS BUTTONS AND OVERRIDE FAVICON
         if (isHtmlResponse && req.method === 'GET') {

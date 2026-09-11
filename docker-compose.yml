@@ -26,6 +26,11 @@ services:
       - GIT_USER_NAME=${GIT_USER_NAME:-}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
       - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - VERCEL_TOKEN=${VERCEL_TOKEN:-}
+      - VERCEL_ORG_ID=${VERCEL_ORG_ID:-}
+      - VERCEL_PROJECT_ID=${VERCEL_PROJECT_ID:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
