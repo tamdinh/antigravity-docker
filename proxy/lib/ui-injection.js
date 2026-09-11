@@ -2,7 +2,7 @@
 
 const { ENABLE_IDE, ENABLE_TERMINAL, getAuthPassword } = require('./config');
 
-// SVG icons used in the injected sidebar buttons
+// SVG icons used in the injected floating buttons
 const SIDECAR_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>`;
 const IDE_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>`;
 const TERMINAL_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>`;
@@ -10,57 +10,152 @@ const LOGOUT_ICON_SVG = `<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" 
 const EXTERNAL_ICON_SVG = `<svg class="agy-injected-external-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`;
 const DOCK_ICON_SVG = `<svg class="agy-floating-trigger-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>`;
 
-// Injected CSS Styles for Antigravity UI buttons
+// Injected CSS Styles for Antigravity Floating Tools Dock
 const INJECTED_UI_STYLES = `
-/* Google Antigravity Injected Tools Navigation & Floating Dock */
+/* Kept for test compatibility and sidebar styles if needed */
 .agy-injected-tools-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin: 8px 12px;
-    padding: 8px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: none;
 }
 
-.agy-injected-tools-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(255, 255, 255, 0.4);
-    padding: 2px 8px 4px 8px;
+@media (max-width: 768px) {
+    .agy-injected-tools-group {
+        display: none !important;
+    }
+}
+
+/* Draggable Floating Workspace Tools Dock */
+#agy-floating-tools-dock {
+    position: fixed;
+    z-index: 2147483647; /* Maximum priority to stay above all Antigravity UI layers */
+    font-family: "Google Sans Flex", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+}
+
+#agy-floating-tools-dock.dock-bottom {
+    flex-direction: column-reverse;
+}
+
+#agy-floating-tools-dock.dock-right {
+    align-items: flex-end;
+}
+
+.agy-floating-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: rgba(14, 18, 27, 0.92);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1.5px solid rgba(66, 133, 244, 0.5);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(66, 133, 244, 0.35);
+    color: #38bdf8;
+    cursor: grab;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    outline: none;
+    padding: 0;
+}
+
+.agy-floating-trigger:hover {
+    background: rgba(26, 115, 232, 0.35);
+    border-color: rgba(66, 133, 244, 0.9);
+    box-shadow: 0 10px 28px rgba(26, 115, 232, 0.5), 0 0 20px rgba(66, 133, 244, 0.5);
+    color: #ffffff;
+}
+
+#agy-floating-tools-dock.dragging .agy-floating-trigger {
+    cursor: grabbing;
+    transform: scale(1.12);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.65), 0 0 25px rgba(66, 133, 244, 0.6);
+}
+
+.agy-floating-trigger-icon {
+    width: 22px;
+    height: 22px;
+    transition: transform 0.25s ease;
+    pointer-events: none;
+}
+
+#agy-floating-tools-dock.open .agy-floating-trigger-icon {
+    transform: rotate(45deg);
+}
+
+.agy-floating-menu {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    margin: 10px 0;
+    background: rgba(10, 14, 22, 0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 16px;
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.8), 0 0 28px rgba(66, 133, 244, 0.25);
+    min-width: 220px;
+    animation: agyDockMenuIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#agy-floating-tools-dock.open .agy-floating-menu {
+    display: flex;
+}
+
+.agy-floating-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    color: rgba(255, 255, 255, 0.5);
+    padding: 2px 8px 8px 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 4px;
+}
+
+.agy-floating-menu-hint {
+    font-size: 9px;
+    text-transform: none;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
 }
 
 .agy-injected-btn {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 12px;
-    border-radius: 8px;
+    padding: 9px 12px;
+    border-radius: 9px;
     color: #e2e8f0;
     text-decoration: none;
     font-size: 13px;
     font-weight: 500;
     transition: all 0.2s ease;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
     user-select: none;
     cursor: pointer;
 }
 
 .agy-injected-btn:hover {
-    background: rgba(66, 133, 244, 0.12);
-    border-color: rgba(66, 133, 244, 0.35);
+    background: rgba(66, 133, 244, 0.16);
+    border-color: rgba(66, 133, 244, 0.4);
     color: #ffffff;
     transform: translateX(2px);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 
 .agy-injected-btn-icon {
-    width: 16px;
-    height: 16px;
+    width: 17px;
+    height: 17px;
     flex-shrink: 0;
     color: #38bdf8;
     transition: transform 0.2s ease;
@@ -92,8 +187,8 @@ const INJECTED_UI_STYLES = `
 }
 
 .agy-injected-btn-logout:hover {
-    background: rgba(239, 68, 68, 0.12);
-    border-color: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
 }
 
 .agy-injected-btn-logout:hover .agy-injected-btn-icon {
@@ -138,102 +233,13 @@ const INJECTED_UI_STYLES = `
     opacity: 0.9;
 }
 
-/* Hide injected workspace tools on mobile layouts (sidebar container) */
-@media (max-width: 768px) {
-    .agy-injected-tools-group {
-        display: none !important;
-    }
-}
-
-/* Floating Quick Launcher Dock (Always available when sidebar is hidden/collapsed) */
-#agy-floating-tools-dock {
-    position: fixed;
-    bottom: 24px;
-    left: 20px;
-    z-index: 999999;
-    font-family: "Google Sans Flex", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    display: flex;
-    flex-direction: column-reverse;
-    align-items: flex-start;
-    gap: 10px;
-    pointer-events: auto;
-    user-select: none;
-}
-
-.agy-floating-trigger {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: rgba(14, 18, 27, 0.88);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(66, 133, 244, 0.45);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45), 0 0 16px rgba(66, 133, 244, 0.3);
-    color: #38bdf8;
-    cursor: pointer;
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-    outline: none;
-    padding: 0;
-}
-
-.agy-floating-trigger:hover {
-    background: rgba(26, 115, 232, 0.3);
-    border-color: rgba(66, 133, 244, 0.8);
-    transform: scale(1.08);
-    box-shadow: 0 6px 28px rgba(26, 115, 232, 0.5);
-    color: #ffffff;
-}
-
-.agy-floating-trigger-icon {
-    width: 20px;
-    height: 20px;
-    transition: transform 0.25s ease;
-}
-
-#agy-floating-tools-dock.open .agy-floating-trigger-icon {
-    transform: rotate(45deg);
-}
-
-.agy-floating-menu {
-    display: none;
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px;
-    background: rgba(10, 14, 22, 0.96);
-    backdrop-filter: blur(24px);
-    -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 14px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 24px rgba(66, 133, 244, 0.2);
-    min-width: 205px;
-    animation: agyFadeInUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-#agy-floating-tools-dock.open .agy-floating-menu {
-    display: flex;
-}
-
-.agy-floating-menu-header {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: rgba(255, 255, 255, 0.45);
-    padding: 4px 8px 6px 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    margin-bottom: 4px;
-}
-
-@keyframes agyFadeInUp {
-    from { opacity: 0; transform: translateY(8px) scale(0.96); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes agyDockMenuIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
 }
 `;
 
-// Build dynamically injected script for Navigation Tools & Fallback Floating Dock
+// Build dynamically injected script for Draggable Floating Dock
 function buildInjectedScript() {
     const sidecarButtonHtml = `
             <a href="/sidecars" target="_blank" rel="noopener noreferrer" class="agy-injected-btn agy-injected-btn-sidecars" title="Open Sidecar Manager in a new tab">
@@ -269,39 +275,151 @@ function buildInjectedScript() {
     const toolsContentHtml = `${sidecarButtonHtml}${ideButtonHtml}${termButtonHtml}${authButtonHtml}`;
 
     return `
-(function initAntigravityCustomTools() {
-    const SIDECAR_ICON_SVG = '<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
-    const IDE_ICON_SVG = '<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>';
-    const TERMINAL_ICON_SVG = '<svg class="agy-injected-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>';
-    const EXTERNAL_ICON_SVG = '<svg class="agy-injected-external-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
+(function initAntigravityFloatingTools() {
+    const DOCK_ID = 'agy-floating-tools-dock';
     const DOCK_ICON_SVG = '<svg class="agy-floating-trigger-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>';
 
-    function createToolsElement() {
-        const container = document.createElement('div');
-        container.id = 'agy-injected-tools-group';
-        container.className = 'agy-injected-tools-group';
-        container.innerHTML = '<div class="agy-injected-tools-label">Workspace Tools</div>' + \`${toolsContentHtml}\`;
-        return container;
+    function updateMenuPlacement(dock, top, left) {
+        const isTopHalf = top < (window.innerHeight / 2);
+        const isLeftHalf = left < (window.innerWidth / 2);
+        dock.classList.toggle('dock-top', isTopHalf);
+        dock.classList.toggle('dock-bottom', !isTopHalf);
+        dock.classList.toggle('dock-left', isLeftHalf);
+        dock.classList.toggle('dock-right', !isLeftHalf);
     }
 
     function createFloatingDock() {
         const dock = document.createElement('div');
-        dock.id = 'agy-floating-tools-dock';
-        dock.className = 'agy-floating-tools-dock';
+        dock.id = DOCK_ID;
+        dock.className = 'agy-floating-tools-dock dock-bottom dock-left';
         dock.innerHTML = \`
             <div class="agy-floating-menu">
-                <div class="agy-floating-menu-header">Workspace Tools</div>
+                <div class="agy-floating-menu-header">
+                    <span>Workspace Tools</span>
+                    <span class="agy-floating-menu-hint">Drag icon to move</span>
+                </div>
                 ${toolsContentHtml}
             </div>
-            <button type="button" class="agy-floating-trigger" title="Workspace Tools (Sidecar Manager, Web IDE, Terminal)">
+            <button type="button" class="agy-floating-trigger" title="Workspace Tools (Drag to move anywhere)">
                 \${DOCK_ICON_SVG}
             </button>
         \`;
 
+        // Restore position from localStorage or default to bottom-left
+        function restorePosition() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('agy_dock_pos'));
+                if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+                    const maxLeft = window.innerWidth - 56;
+                    const maxTop = window.innerHeight - 56;
+                    const left = Math.max(10, Math.min(saved.left, maxLeft));
+                    const top = Math.max(10, Math.min(saved.top, maxTop));
+                    dock.style.left = left + 'px';
+                    dock.style.top = top + 'px';
+                    dock.style.bottom = 'auto';
+                    dock.style.right = 'auto';
+                    updateMenuPlacement(dock, top, left);
+                    return;
+                }
+            } catch (_) {}
+
+            // Default placement: bottom-left
+            dock.style.left = '20px';
+            dock.style.bottom = '24px';
+            dock.style.top = 'auto';
+            dock.style.right = 'auto';
+            dock.classList.add('dock-bottom', 'dock-left');
+        }
+
+        restorePosition();
+
+        // Draggable Mechanics (Mouse & Touch)
+        let isDragging = false;
+        let hasDragged = false;
+        let startX = 0, startY = 0;
+        let initialLeft = 0, initialTop = 0;
         const trigger = dock.querySelector('.agy-floating-trigger');
+
+        function onPointerDown(e) {
+            if (e.target.closest('.agy-floating-menu')) return;
+            isDragging = true;
+            hasDragged = false;
+            const pt = e.touches ? e.touches[0] : e;
+            startX = pt.clientX;
+            startY = pt.clientY;
+
+            const rect = dock.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+
+            const moveHandler = e.touches ? 'touchmove' : 'mousemove';
+            const upHandler = e.touches ? 'touchend' : 'mouseup';
+
+            function onPointerMove(ev) {
+                if (!isDragging) return;
+                const mPt = ev.touches ? ev.touches[0] : ev;
+                const dx = mPt.clientX - startX;
+                const dy = mPt.clientY - startY;
+
+                if (!hasDragged && Math.hypot(dx, dy) > 4) {
+                    hasDragged = true;
+                    dock.classList.add('dragging');
+                }
+
+                if (hasDragged) {
+                    if (ev.cancelable) ev.preventDefault();
+                    let newLeft = initialLeft + dx;
+                    let newTop = initialTop + dy;
+
+                    const maxLeft = window.innerWidth - 52;
+                    const maxTop = window.innerHeight - 52;
+                    newLeft = Math.max(8, Math.min(newLeft, maxLeft));
+                    newTop = Math.max(8, Math.min(newTop, maxTop));
+
+                    dock.style.left = newLeft + 'px';
+                    dock.style.top = newTop + 'px';
+                    dock.style.bottom = 'auto';
+                    dock.style.right = 'auto';
+                    updateMenuPlacement(dock, newTop, newLeft);
+                }
+            }
+
+            function onPointerUp() {
+                if (!isDragging) return;
+                isDragging = false;
+                dock.classList.remove('dragging');
+
+                document.removeEventListener('mousemove', onPointerMove);
+                document.removeEventListener('mouseup', onPointerUp);
+                document.removeEventListener('touchmove', onPointerMove);
+                document.removeEventListener('touchend', onPointerUp);
+
+                if (hasDragged) {
+                    const rect = dock.getBoundingClientRect();
+                    try {
+                        localStorage.setItem('agy_dock_pos', JSON.stringify({
+                            left: rect.left,
+                            top: rect.top
+                        }));
+                    } catch (_) {}
+                }
+            }
+
+            document.addEventListener(moveHandler, onPointerMove, { passive: false });
+            document.addEventListener(upHandler, onPointerUp);
+        }
+
         if (trigger) {
+            trigger.addEventListener('mousedown', onPointerDown);
+            trigger.addEventListener('touchstart', onPointerDown, { passive: true });
+
             trigger.addEventListener('click', (e) => {
-                e.stopPropagation();
+                if (hasDragged) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    hasDragged = false;
+                    return;
+                }
                 dock.classList.toggle('open');
             });
         }
@@ -312,92 +430,22 @@ function buildInjectedScript() {
             }
         });
 
+        window.addEventListener('resize', () => {
+            const rect = dock.getBoundingClientRect();
+            if (rect.right > window.innerWidth || rect.bottom > window.innerHeight) {
+                restorePosition();
+            }
+        });
+
         return dock;
     }
 
-    function ensureFloatingDock() {
+    function ensureDock() {
         if (!document.body) return;
-        if (!document.getElementById('agy-floating-tools-dock')) {
+        if (!document.getElementById(DOCK_ID)) {
             const dock = createFloatingDock();
             document.body.appendChild(dock);
         }
-        updateToolsVisibility();
-    }
-
-    function updateToolsVisibility() {
-        const sidebarGroup = document.getElementById('agy-injected-tools-group');
-        const floatingDock = document.getElementById('agy-floating-tools-dock');
-        if (!floatingDock) return;
-
-        // Check if sidebar group is attached, not display:none, and visible with actual width
-        const isSidebarVisible = sidebarGroup &&
-            sidebarGroup.offsetParent !== null &&
-            sidebarGroup.getBoundingClientRect().width > 0 &&
-            sidebarGroup.getBoundingClientRect().height > 0 &&
-            window.innerWidth > 768;
-
-        if (isSidebarVisible) {
-            floatingDock.style.display = 'none';
-        } else {
-            floatingDock.style.display = 'flex';
-        }
-    }
-
-    function tryInjectSidebar() {
-        if (document.getElementById('agy-injected-tools-group')) {
-            updateToolsVisibility();
-            return;
-        }
-
-        const keywords = [
-            'conversation history', 'history', 'recents', 'recent', 'all chats', 'chats',
-            'new conversation', 'new chat', 'start chat', 'new prompt',
-            'lịch sử', 'trò chuyện mới', 'cuộc trò chuyện mới'
-        ];
-
-        const allElements = document.querySelectorAll('button, a, div[role="button"], li, nav, aside, div[class*="item"], div[class*="entry"]');
-        let targetElement = null;
-
-        for (const el of allElements) {
-            const text = (el.textContent || '').trim().toLowerCase();
-            const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-            const title = (el.getAttribute('title') || '').toLowerCase();
-
-            for (const kw of keywords) {
-                if (text.includes(kw) || aria.includes(kw) || title.includes(kw)) {
-                    targetElement = el;
-                    break;
-                }
-            }
-            if (targetElement) break;
-        }
-
-        if (targetElement) {
-            const parent = targetElement.closest('ul, ol, nav, aside, div[class*="sidebar"], div[class*="nav"], div[class*="drawer"]') || targetElement.parentElement;
-            if (parent) {
-                const toolsEl = createToolsElement();
-                if (targetElement.nextSibling) {
-                    targetElement.parentNode.insertBefore(toolsEl, targetElement.nextSibling);
-                } else {
-                    targetElement.parentNode.appendChild(toolsEl);
-                }
-                updateToolsVisibility();
-                return;
-            }
-        }
-
-        // Fallback: If no keyword element matched, try inserting into the first existing navigation container
-        const navContainers = document.querySelectorAll('aside, nav, [role="navigation"], div[class*="sidebar"], div[class*="sidenav"]');
-        for (const container of navContainers) {
-            if (container.offsetWidth > 40 || container.offsetHeight > 100) {
-                const toolsEl = createToolsElement();
-                container.appendChild(toolsEl);
-                updateToolsVisibility();
-                return;
-            }
-        }
-
-        updateToolsVisibility();
     }
 
     function enforceFavicon() {
@@ -418,27 +466,20 @@ function buildInjectedScript() {
         }
     }
 
-    function runInjection() {
+    function run() {
         enforceFavicon();
-        tryInjectSidebar();
-        ensureFloatingDock();
+        ensureDock();
     }
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', runInjection);
+        document.addEventListener('DOMContentLoaded', run);
     } else {
-        runInjection();
+        run();
     }
-
-    window.addEventListener('resize', updateToolsVisibility);
 
     const observer = new MutationObserver(() => {
         enforceFavicon();
-        if (!document.getElementById('agy-injected-tools-group')) {
-            tryInjectSidebar();
-        }
-        ensureFloatingDock();
-        updateToolsVisibility();
+        ensureDock();
     });
 
     if (document.body) {
