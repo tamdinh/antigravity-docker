@@ -62,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     python-is-python3 \
     && rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir --break-system-packages uv poetry pipenv virtualenv
+    pip install --no-cache-dir --break-system-packages --root-user-action=ignore uv poetry pipenv virtualenv
 
 # 5. Install code-server (VS Code Web IDE) and ttyd (Web Terminal)
 RUN curl -fsSL https://code-server.dev/install.sh | sh && \
@@ -101,7 +101,7 @@ ENV HOME=/home/${USERNAME}
 WORKDIR /home/${USERNAME}
 
 RUN mkdir -p /home/${USERNAME}/.local/bin && \
-    curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /home/${USERNAME}/.local/bin
+    curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /home/${USERNAME}/.local/bin 2>&1
 
 # Add ~/.local/bin and package manager binaries to PATH
 ENV PATH="/home/${USERNAME}/.gemini/antigravity-cli/bin:/home/${USERNAME}/.local/bin:/home/${USERNAME}/.cargo/bin:/home/${USERNAME}/.local/share/pnpm:${PATH}"
