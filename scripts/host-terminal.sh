@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Host Terminal Wrapper - Executes commands on the Host Machine via SSH
+# Host Terminal Wrapper - Executes commands on the Host Machine via SSH or starts Container Shell
 
 set -e
 
@@ -15,21 +15,58 @@ start_container_shell() {
     echo -e " Mode: \033[1;32mContainer Shell (local)\033[0m"
     echo -e " Working Directory: \033[1;36m/workspace\033[0m"
     echo -e " User: \033[1;37m$(whoami)\033[0m"
-    echo -e " Available Tools: \033[0;36magy, git, node, python3, pip, pnpm\033[0m"
+    echo -e " Available Tools: \033[0;36magy, git, gh, vercel, node, python3, pip, pnpm\033[0m"
     echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
     cd /workspace 2>/dev/null || cd "$HOME"
     exec /bin/bash -l
 }
 
+# 1. Direct container mode
 if [ "$TERMINAL_MODE" = "container" ] || [ "$TERMINAL_MODE" = "local" ]; then
     start_container_shell
 fi
 
-# Configuration from environment or defaults
+# 2. Configuration from environment or defaults
 HOST_USER="${HOST_SSH_USER:-}"
 HOST_ADDR="${HOST_SSH_HOST:-host.docker.internal}"
 HOST_PORT="${HOST_SSH_PORT:-22}"
 HOST_DIR="${HOST_SSH_DIR:-}"
+
+# 3. If in auto mode and HOST_SSH_USER is not explicitly defined, offer choice
+if [ "$TERMINAL_MODE" = "auto" ] && [ -z "$HOST_SSH_USER" ]; then
+    echo -e "\033[1;34m===================================================================\033[0m"
+    echo -e "\033[1;36m  🚀 Google Antigravity Terminal Gateway\033[0m"
+    echo -e "\033[1;34m===================================================================\033[0m"
+    echo -e " Host SSH is not explicitly configured (HOST_SSH_USER is empty)."
+    echo ""
+    echo -e "  \033[1;32m[1]\033[0m Start Container Shell (Bash in /workspace) \033[0;37m[Default]\033[0m"
+    echo -e "  \033[1;36m[2]\033[0m Connect to Host Machine via SSH\033[0m"
+    echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
+    read -t 3 -n 1 -r -p " Choose an option [1/2] (starting container shell in 3s): " CHOICE || true
+    echo ""
+
+    if [ "$CHOICE" != "2" ]; then
+        start_container_shell
+    fi
+
+    # User explicitly chose Host SSH
+    read -p " Enter Host SSH Username [root]: " INPUT_USER
+    HOST_USER="${INPUT_USER:-root}"
+    read -p " Enter Host SSH Address [${HOST_ADDR}]: " INPUT_ADDR
+    HOST_ADDR="${INPUT_ADDR:-$HOST_ADDR}"
+fi
+
+# 4. If proceeding to SSH, auto-detect username if still empty
+if [ -z "$HOST_USER" ]; then
+    WORKSPACE_OWNER=$(stat -c '%U' /workspace 2>/dev/null || true)
+    if [ -n "$WORKSPACE_OWNER" ] && [ "$WORKSPACE_OWNER" != "root" ] && [ "$WORKSPACE_OWNER" != "developer" ] && [ "$WORKSPACE_OWNER" != "UNKNOWN" ]; then
+        HOST_USER="$WORKSPACE_OWNER"
+    elif [ -n "$USER" ] && [ "$USER" != "developer" ]; then
+        HOST_USER="$USER"
+    else
+        HOST_USER="developer"
+    fi
+fi
 
 # Remote command to run upon login with safe path escaping
 if [ -n "$HOST_DIR" ]; then
@@ -43,19 +80,7 @@ else
     REMOTE_SHELL_CMD="exec \${SHELL:-/bin/bash} -l"
 fi
 
-# Auto-detect host username if not specified
-if [ -z "$HOST_USER" ]; then
-    WORKSPACE_OWNER=$(stat -c '%U' /workspace 2>/dev/null || true)
-    if [ -n "$WORKSPACE_OWNER" ] && [ "$WORKSPACE_OWNER" != "root" ] && [ "$WORKSPACE_OWNER" != "developer" ] && [ "$WORKSPACE_OWNER" != "UNKNOWN" ]; then
-        HOST_USER="$WORKSPACE_OWNER"
-    elif [ -n "$USER" ] && [ "$USER" != "developer" ]; then
-        HOST_USER="$USER"
-    else
-        HOST_USER="developer"
-    fi
-fi
-
-# Print banner
+# Print banner for Host SSH connection
 echo -e "\033[1;34m===================================================================\033[0m"
 echo -e "\033[1;36m  🚀 Google Antigravity Host Terminal Gateway\033[0m"
 echo -e "\033[1;34m===================================================================\033[0m"
@@ -96,30 +121,6 @@ BASE_SSH_OPTS=(
 )
 
 KEY_COUNT=${#IDENTITY_ARGS[@]}
-
-# If in auto mode with no private keys and HOST_SSH_USER not explicitly defined, offer choice
-if [ "$TERMINAL_MODE" = "auto" ] && [ -z "$HOST_SSH_USER" ] && [ "$KEY_COUNT" -eq 0 ]; then
-    echo -e "\033[1;34m===================================================================\033[0m"
-    echo -e "\033[1;36m  🚀 Google Antigravity Terminal Gateway\033[0m"
-    echo -e "\033[1;34m===================================================================\033[0m"
-    echo -e " Host SSH is not configured (no SSH keys in ~/.ssh, HOST_SSH_USER not set)."
-    echo ""
-    echo -e "  \033[1;32m[1]\033[0m Start Container Shell (Bash in /workspace) \033[0;37m[Default]\033[0m"
-    echo -e "  \033[1;36m[2]\033[0m Connect to Host VPS via SSH\033[0m"
-    echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
-    read -t 5 -n 1 -r -p " Choose an option [1/2] (starting container shell in 5s): " CHOICE || true
-    echo ""
-
-    if [ "$CHOICE" != "2" ]; then
-        start_container_shell
-    fi
-
-    # User explicitly chose Host SSH
-    read -p " Enter Host SSH Username [root]: " INPUT_USER
-    HOST_USER="${INPUT_USER:-root}"
-    read -p " Enter Host SSH Address [${HOST_ADDR}]: " INPUT_ADDR
-    HOST_ADDR="${INPUT_ADDR:-$HOST_ADDR}"
-fi
 
 # Test SSH key-based connectivity first (non-interactive batch mode)
 if ssh -n -o BatchMode=yes -o ConnectTimeout=3 "${BASE_SSH_OPTS[@]}" "${HOST_USER}@${HOST_ADDR}" "true" 2>/dev/null; then

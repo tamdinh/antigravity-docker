@@ -32,12 +32,14 @@ services:
       - AUTH_PASSWORD=<password-for-login>
       - ENABLE_IDE=true
       - ENABLE_TERMINAL=true
-      - HOST_SSH_USER=<host-username>
+      - TERMINAL_MODE=auto
+      - HOST_SSH_USER=
       - HOST_SSH_HOST=host.docker.internal
       - HOST_SSH_PORT=22
-      - HOST_SSH_DIR=<host-directory-path>
+      - HOST_SSH_DIR=
       - GIT_USER_NAME=${GIT_USER_NAME:-}
       - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
       - GH_TOKEN=${GH_TOKEN:-}
       - VERCEL_TOKEN=${VERCEL_TOKEN:-}
     extra_hosts:
@@ -69,15 +71,19 @@ volumes:
 | `AUTH_PASSWORD` | *(empty)* | Optional password to protect web access. When set, prompts for login and remembers session for 30 days. |
 | `BLOCK_TELEMETRY` | `true` | When `true` (default), blocks Google usage telemetry, analytics, crash reporting, and diagnostic tracking domains via in-container DNS sinkholing (`0.0.0.0`) and disables OpenTelemetry exporters, while keeping Gemini model APIs and authentication working seamlessly. |
 | `ENABLE_IDE` | `true` | Set to `false` to disable the VS Code Web IDE service and hide its UI button. |
-| `ENABLE_TERMINAL` | `true` | Set to `false` to disable the Host Web Terminal service and hide its UI button. |
-| `HOST_SSH_USER` | *(workspace owner)* | Host username used by the Web Terminal to connect to the host machine via SSH. |
+| `ENABLE_TERMINAL` | `true` | Set to `false` to disable the Web Terminal service and hide its UI button. |
+| `TERMINAL_MODE` | `auto` | Terminal operational mode. Options: `auto`, `container` (or `local`), `host`. <br>• `auto`: When `HOST_SSH_USER` is empty, displays an interactive 3-second selection menu defaulting to the container shell; when set, connects to the host via SSH. <br>• `container`: Bypasses SSH completely and directly launches an internal Bash shell in `/workspace` with pre-installed developer tools (`agy`, `git`, `gh`, `vercel`, `node`, `python3`, `uv`, `poetry`, etc.). <br>• `host`: Strictly initiates an interactive SSH connection to the host machine. |
+| `HOST_SSH_USER` | *(empty)* | Host username used by the Web Terminal when connecting to the host machine via SSH. When left empty and `TERMINAL_MODE=auto`, defaults to the container shell. |
 | `HOST_SSH_HOST` | `host.docker.internal` | Hostname/IP used by Web Terminal to reach the host machine. |
 | `HOST_SSH_PORT` | `22` | SSH port on the host machine. |
 | `HOST_SSH_DIR` | *(host user home)* | *(Optional)* Absolute directory on the host machine to automatically `cd` into when opening the Web Terminal. |
+| `SSH_PRIVATE_KEY` | *(empty)* | *(Optional)* Raw or base64-encoded private key string automatically imported into `/home/developer/.ssh/id_ed25519` at runtime. |
 | `GIT_USER_NAME` | *(empty)* | Optional Git user.name configured globally for developer commits. |
 | `GIT_USER_EMAIL` | *(empty)* | Optional Git user.email configured globally for developer commits. |
-| `GH_TOKEN` / `GITHUB_TOKEN` | *(empty)* | Optional GitHub Personal Access Token for GitHub CLI (`gh`). |
+| `GH_TOKEN` / `GITHUB_TOKEN` | *(empty)* | Optional GitHub Personal Access Token for GitHub CLI (`gh`). Automatically authenticates `gh` commands without manual login. |
 | `VERCEL_TOKEN` | *(empty)* | Optional Vercel API Token for Vercel CLI deployments. |
+| `VERCEL_ORG_ID` | *(empty)* | *(Optional)* Vercel Team/Organization ID for team-scoped deployments. |
+| `VERCEL_PROJECT_ID` | *(empty)* | *(Optional)* Vercel Project ID to link deployments to a specific project. |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 
@@ -154,14 +160,14 @@ Navigate to `http://<your-server-ip>:4400` in your browser (or through your
 reverse proxy). If configured, enter your `AUTH_PASSWORD` on the login screen to
 unlock your session for 30 days.
 
-Once logged in, all services are accessible:
+Once logged in, all services are accessible directly or via the **Draggable Floating Tools Dock** (which can be dragged to any position on the screen to avoid obstructing the chat UI):
 
 | Service | Path | Description | Authentication |
 | :--- | :--- | :--- | :--- |
-| **Google Antigravity UI** | `/` | Main chat and conversation interface. Injected with **Sidecar Manager**, **Web IDE**, and **Host Terminal** buttons in the left navigation sidebar. | Protected 🔒 |
+| **Google Antigravity UI** | `/` | Main chat and conversation interface. Equipped with a **Draggable Floating Tools Dock** for launching workspace tools with auto-remembered screen placement. | Protected 🔒 |
 | **Sidecar Manager** | `/sidecars` | Web UI for defining, scheduling, and monitoring background sidecars and recurring agent prompts. | Protected 🔒 |
 | **VS Code Web IDE** | `/ide/` | Full-featured VS Code in the browser for viewing and editing raw project files in `/workspace`. | Protected 🔒 |
-| **Host Web Terminal** | `/terminal/` | Web terminal running interactive SSH sessions directly on the host machine (manage Docker, run system commands, git, etc.). | Protected 🔒 |
+| **Web Terminal** | `/terminal/` | Web terminal running interactive container Bash sessions (`/workspace`) or SSH sessions to the host machine (configurable via `TERMINAL_MODE`). | Protected 🔒 |
 | **Health & Service Status** | `/status` | Real-time health check endpoint for monitoring service uptime. | **Public / Unauthenticated** 🟢 |
 
 ---
@@ -172,7 +178,7 @@ The built-in **Sidecar Manager** allows you to schedule recurring agent prompts
 (e.g., hourly PR triage, daily summaries) and run background workers directly
 alongside your Antigravity container.
 
-Access it by clicking **Sidecar Manager** in the left navigation pane of the
+Access it by clicking **Sidecar Manager** in the floating tools dock of the
 Antigravity UI or navigating directly to `/sidecars`.
 
 ### Features:
