@@ -10,6 +10,9 @@ WORKSPACE_DIR="/workspace"
 export HOME="/home/${DEVELOPER_USER}"
 export USER="${DEVELOPER_USER}"
 export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOPER_USER}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+export VERCEL_TOKEN="${VERCEL_TOKEN:-}"
+export VERCEL_ORG_ID="${VERCEL_ORG_ID:-}"
+export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
 
 # Ensure root can access persistent config if needed
 ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
@@ -89,6 +92,71 @@ if [ ! -f "$GEMINI_DIR/config/config.json" ]; then
   }
 }
 EOF
+fi
+
+# Initialize Vercel & Agent Customizations (Skills, Rules, MCP config)
+CUSTOMIZATIONS_SRC="/usr/local/share/antigravity/customizations"
+[ ! -d "$CUSTOMIZATIONS_SRC" ] && CUSTOMIZATIONS_SRC="/workspace/antigravity-docker/customizations"
+[ ! -d "$CUSTOMIZATIONS_SRC" ] && CUSTOMIZATIONS_SRC="/workspace/customizations"
+
+mkdir -p "$GEMINI_DIR/config/skills" \
+         "$GEMINI_DIR/config/rules"
+
+if [ -d "$CUSTOMIZATIONS_SRC" ]; then
+    # Sync skills (copy if missing)
+    if [ -d "$CUSTOMIZATIONS_SRC/skills" ]; then
+        for s in "$CUSTOMIZATIONS_SRC/skills"/*; do
+            if [ -d "$s" ]; then
+                sname="$(basename "$s")"
+                if [ ! -d "$GEMINI_DIR/config/skills/$sname" ]; then
+                    cp -r "$s" "$GEMINI_DIR/config/skills/"
+                    echo " [Customizations] Installed Vercel skill: '$sname'"
+                fi
+            fi
+        done
+    fi
+
+    # Sync rules
+    if [ -d "$CUSTOMIZATIONS_SRC/rules" ]; then
+        for r in "$CUSTOMIZATIONS_SRC/rules"/*; do
+            if [ -f "$r" ]; then
+                rname="$(basename "$r")"
+                if [ ! -f "$GEMINI_DIR/config/rules/$rname" ]; then
+                    cp "$r" "$GEMINI_DIR/config/rules/"
+                    echo " [Customizations] Installed Vercel rule: '$rname'"
+                fi
+            fi
+        done
+    fi
+
+    # Initialize or merge mcp_config.json
+    MCP_TARGET="$GEMINI_DIR/config/mcp_config.json"
+    if [ ! -f "$MCP_TARGET" ]; then
+        if [ -f "$CUSTOMIZATIONS_SRC/mcp_config.json" ]; then
+            cp "$CUSTOMIZATIONS_SRC/mcp_config.json" "$MCP_TARGET"
+            echo " [Customizations] Initialized mcp_config.json with Vercel MCP server"
+        fi
+    else
+        # Merge vercel MCP server into existing mcp_config.json if not present
+        node -e '
+        const fs = require("fs");
+        const targetPath = process.argv[1];
+        try {
+            const data = JSON.parse(fs.readFileSync(targetPath, "utf8"));
+            data.mcpServers = data.mcpServers || {};
+            if (!data.mcpServers.vercel) {
+                data.mcpServers.vercel = {
+                    command: "mcp-remote",
+                    args: ["https://mcp.vercel.com"]
+                };
+                fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
+                console.log(" [Customizations] Added Vercel MCP server to existing mcp_config.json");
+            }
+        } catch (e) {
+            console.error(" [Customizations] Notice: Unable to auto-merge MCP config:", e.message);
+        }
+        ' "$MCP_TARGET" 2>/dev/null || true
+    fi
 fi
 
 # Scan /workspace and register each folder as a separate project in ~/.gemini/config/projects/<UUID>.json
@@ -366,6 +434,20 @@ if [ -n "$GIT_USER_NAME" ]; then
 fi
 if [ -n "$GIT_USER_EMAIL" ]; then
     gosu "$DEVELOPER_USER" git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+fi
+
+# Configure Vercel CLI token if provided via environment
+if [ -n "$VERCEL_TOKEN" ]; then
+    VERCEL_CONFIG_DIR="/home/${DEVELOPER_USER}/.vercel"
+    mkdir -p "$VERCEL_CONFIG_DIR"
+    cat <<EOF > "$VERCEL_CONFIG_DIR/auth.json"
+{
+  "token": "${VERCEL_TOKEN}"
+}
+EOF
+    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$VERCEL_CONFIG_DIR"
+    chmod 600 "$VERCEL_CONFIG_DIR/auth.json"
+    echo " 🟢 Vercel CLI authenticated via VERCEL_TOKEN"
 fi
 
 # Ensure agentapi symlink is available in PATH

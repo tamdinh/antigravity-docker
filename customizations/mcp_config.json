@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vercel": {
+      "command": "mcp-remote",
+      "args": ["https://mcp.vercel.com"]
+    }
+  }
+}

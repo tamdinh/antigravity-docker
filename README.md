@@ -206,6 +206,44 @@ Antigravity UI or navigating directly to `/sidecars`.
 
 ---
 
+## ▲ Built-in Vercel Tools, Skills & MCP Integration
+
+The container comes with native, out-of-the-box support for the complete **Vercel Ecosystem** based on official [Vercel LLM Documentation](https://vercel.com/docs/llms-full.txt), empowering the AI agent to understand, deploy, debug, and optimize applications seamlessly on Vercel.
+
+### What is Included:
+1. **Developer Tools**:
+   - `vercel`: Official Vercel CLI for deployments, project linking, domain inspection, and secrets management.
+   - `skills`: The open agent skills ecosystem CLI from Vercel Labs (`skills.sh`).
+   - `add-mcp`: Tool for discovering and configuring Model Context Protocol servers.
+   - `mcp-remote`: Transport bridge for connecting to remote MCP endpoints over stdio.
+
+2. **Pre-configured Vercel MCP Server**:
+   - The official Vercel Model Context Protocol server (`https://mcp.vercel.com`) is pre-configured in `~/.gemini/config/mcp_config.json`.
+   - Gives the AI agent direct access to:
+     - `search_vercel_documentation`: Official docs search.
+     - `list_projects`, `get_project`: Inspect projects and settings.
+     - `list_deployments`, `get_deployment`, `get_deployment_events`: Diagnostic logs for builds and runtime errors.
+     - `query_web_analytics`: Web Analytics queries.
+     - `check_domain_status`, `check_domain_availability`: Custom domain management.
+
+3. **Packaged Antigravity Skills**:
+   The agent automatically discovers and leverages modular skills located in `~/.gemini/config/skills/`:
+   - `vercel-deploy`: Automated preview and production deployments with non-interactive flags (`vercel --prod --yes`).
+   - `vercel-cli`: Comprehensive CLI management guide for linking, environment variables (`vercel env pull/add`), and domains.
+   - `vercel-react-best-practices`: Performance optimization guidelines (RSC boundaries, dynamic imports, bundle size, Core Web Vitals).
+   - `next-best-practices`: Next.js App Router conventions, Cache Components (`use cache`, `cacheLife`, `cacheTag`), and Partial Prerendering (PPR).
+   - `vercel-ai-sdk`: Production AI development using Vercel AI SDK v6 (streaming, tool calling, multi-agent loops).
+   - `vercel-troubleshooting`: Step-by-step diagnostic runbook for 500 runtime errors, function timeouts, build failures, and rollbacks.
+   - `vercel-storage`: Integration recipes for Vercel Blob, Neon Postgres, and Upstash Redis.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Global rules enforce non-interactive automation, prevent accidental `.vercel` directory commits, guide proper environment variable synchronization, and ensure safe secret management.
+
+5. **Instant CLI Authentication**:
+   - Set `VERCEL_TOKEN` in your container environment or `docker-compose.yml`. The container automatically provisions `~/.vercel/auth.json` on startup so all `vercel` CLI commands are pre-authenticated without interactive login prompts.
+
+---
+
 ## 🛡️ Privacy & Telemetry Management
 
 By default, `BLOCK_TELEMETRY=true` is enabled to prevent usage telemetry,

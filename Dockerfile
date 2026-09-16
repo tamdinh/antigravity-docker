@@ -48,10 +48,10 @@ RUN mkdir -p -m 755 /etc/apt/keyrings && \
     apt-get install -y --no-install-recommends gh && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. Install Node.js 26 (Latest release line) and Package Managers (npm, pnpm, yarn, bun, vercel)
+# 3. Install Node.js 26 (Latest release line), Package Managers, and Vercel/Agent Tools (vercel, skills, add-mcp, mcp-remote)
 RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
-    npm install -g pnpm yarn bun vercel && \
+    npm install -g pnpm yarn bun vercel skills add-mcp mcp-remote && \
     rm -rf /var/lib/apt/lists/*
 
 # 4. Install Python 3, pip, venv, and modern Python package managers (uv, poetry)
@@ -118,6 +118,7 @@ RUN mkdir -p /home/${USERNAME}/.gemini \
     ln -sf /home/${USERNAME}/.local/bin/agy /usr/local/bin/agentapi
 
 COPY assets/ /usr/local/share/antigravity/assets/
+COPY customizations/ /usr/local/share/antigravity/customizations/
 RUN if [ -d /usr/lib/code-server/src/browser/media ]; then \
         cp /usr/local/share/antigravity/assets/favicon.svg /usr/lib/code-server/src/browser/media/favicon.svg && \
         cp /usr/local/share/antigravity/assets/favicon.svg /usr/lib/code-server/src/browser/media/favicon-dark-support.svg && \
