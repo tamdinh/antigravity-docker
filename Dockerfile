@@ -48,10 +48,10 @@ RUN mkdir -p -m 755 /etc/apt/keyrings && \
     apt-get install -y --no-install-recommends gh && \
     rm -rf /var/lib/apt/lists/*
 
-# 3. Install Node.js 26 (Latest release line), Package Managers, and Vercel/Agent Tools (vercel, skills, add-mcp, mcp-remote)
+# 3. Install Node.js 26 (Latest release line), Package Managers, and Vercel/Expo/Agent Tools (vercel, eas-cli, skills, add-mcp, mcp-remote)
 RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
-    npm install -g pnpm yarn bun vercel skills add-mcp mcp-remote && \
+    npm install -g pnpm yarn bun vercel eas-cli skills add-mcp mcp-remote && \
     rm -rf /var/lib/apt/lists/*
 
 # 4. Install Python 3, pip, venv, and modern Python package managers (uv, poetry)

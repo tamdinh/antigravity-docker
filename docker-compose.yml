@@ -31,6 +31,7 @@ services:
       - VERCEL_TOKEN=${VERCEL_TOKEN:-}
       - VERCEL_ORG_ID=${VERCEL_ORG_ID:-}
       - VERCEL_PROJECT_ID=${VERCEL_PROJECT_ID:-}
+      - EXPO_TOKEN=${EXPO_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

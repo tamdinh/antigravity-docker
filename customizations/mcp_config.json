@@ -3,6 +3,10 @@
     "vercel": {
       "command": "mcp-remote",
       "args": ["https://mcp.vercel.com"]
+    },
+    "expo": {
+      "command": "npx",
+      "args": ["-y", "expo-mcp-server"]
     }
   }
 }

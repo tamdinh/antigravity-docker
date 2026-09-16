@@ -44,3 +44,38 @@ When developing, testing, configuring, or deploying projects targeting the Verce
   1. Check deployment status via `vercel inspect <url>` or MCP `get_deployment`.
   2. Inspect build/runtime logs via `vercel logs <url>` or MCP `get_deployment_events`.
   3. Identify if the failure is a build error (e.g., TypeScript error, missing dependency) or a runtime error (e.g., missing environment variable, function timeout).
+
+---
+
+# Expo & EAS Mobile Development Guidelines for AI Agents
+
+When developing, testing, building, or publishing React Native mobile applications targeting Expo and EAS:
+
+## 1. Non-Interactive Cloud Builds
+- Always use non-interactive flags for EAS CLI commands in automated agent tasks:
+  - `eas build --platform <all|ios|android> --profile <preview|production> --non-interactive`
+  - `eas submit --platform <ios|android> --non-interactive`
+  - `eas update --branch <branch> --message "<msg>" --non-interactive`
+- The environment provides `EXPO_TOKEN` if configured, enabling passwordless authentication with Expo Cloud.
+
+## 2. Remote Development & Tunneling
+- When launching the local development server inside the Docker container, always enable tunneling so physical devices can scan the QR code and connect over the internet:
+  `npx expo start --tunnel`
+- If cache issues occur, append `-c`: `npx expo start --tunnel -c`.
+
+## 3. Expo Router Conventions
+- Prefer Expo Router (`app/` directory) for file-based navigation (Stack, Tabs, Modals).
+- Use `useRouter()` and `<Link>` primitives.
+- Wrap the app with `SafeAreaProvider` from `react-native-safe-area-context` in `app/_layout.tsx`.
+
+## 4. Mobile Security & Credentials
+- Never commit signing credentials, `.p8`, `.mobileprovision`, keystores, or `.expo/` directories to version control.
+- Ensure `.gitignore` includes:
+  ```gitignore
+  .expo
+  *.jks
+  *.p8
+  *.p12
+  *.mobileprovision
+  ```
+

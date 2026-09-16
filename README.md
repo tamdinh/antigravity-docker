@@ -84,6 +84,7 @@ volumes:
 | `VERCEL_TOKEN` | *(empty)* | Optional Vercel API Token for Vercel CLI deployments. |
 | `VERCEL_ORG_ID` | *(empty)* | *(Optional)* Vercel Team/Organization ID for team-scoped deployments. |
 | `VERCEL_PROJECT_ID` | *(empty)* | *(Optional)* Vercel Project ID to link deployments to a specific project. |
+| `EXPO_TOKEN` | *(empty)* | *(Optional)* Expo Access Token for EAS Cloud builds, submissions, and OTA updates without interactive login. |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 
@@ -241,6 +242,36 @@ The container comes with native, out-of-the-box support for the complete **Verce
 
 5. **Instant CLI Authentication**:
    - Set `VERCEL_TOKEN` in your container environment or `docker-compose.yml`. The container automatically provisions `~/.vercel/auth.json` on startup so all `vercel` CLI commands are pre-authenticated without interactive login prompts.
+
+---
+
+## 📱 Built-in Expo & EAS Mobile Development Integration
+
+The container provides full-stack mobile development support for **React Native, Expo, and EAS (Expo Application Services)**, turning your headless agent into a complete mobile development workstation without requiring local macOS, Xcode, or Android SDK installations.
+
+### Why EAS in Docker?
+- **Cloud Builds**: Heavy native compilation for iOS (`.ipa`) and Android (`.aab` / `.apk`) is offloaded to Expo Cloud via `eas build --platform all`. Docker remains lightweight while building real native apps.
+- **Remote Testing via Tunneling**: Run `npx expo start --tunnel` to generate a secure QR code in the Web Terminal that can be scanned by physical iOS/Android devices anywhere in the world.
+- **EAS Updates (OTA)**: Push instant bug fixes directly to user devices via `eas update` without waiting for App Store or Google Play review cycles.
+
+### What is Included:
+1. **Developer Tools**:
+   - `eas-cli`: Official CLI for EAS cloud builds, submissions, and credentials management.
+   - `npx expo`: Bundler, dev client, config plugin generator, and dependency alignment (`npx expo install --fix`).
+
+2. **Pre-configured Expo MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json`.
+   - Allows the AI agent to search official Expo documentation, monitor EAS cloud build progress, inspect build logs, and debug native configurations.
+
+3. **Packaged Mobile Skills**:
+   Discovered automatically under `~/.gemini/config/skills/`:
+   - `eas-build-and-deploy`: Setting up `eas.json`, non-interactive cloud builds (`eas build --platform all --non-interactive`), and store submission (`eas submit`).
+   - `expo-router-best-practices`: Universal file-based routing for mobile apps (Stack, Tabs, Modals, Drawer).
+   - `eas-update`: Over-the-air updates, branch/channel management, and instant rollbacks.
+   - `expo-troubleshooting`: Diagnosing EAS build failures, native config plugins in `app.json`, and credentials signing.
+
+4. **Authentication**:
+   - Provide `EXPO_TOKEN` in `docker-compose.yml` to enable non-interactive cloud builds and submissions.
 
 ---
 

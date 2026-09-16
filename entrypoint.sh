@@ -13,6 +13,7 @@ export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOP
 export VERCEL_TOKEN="${VERCEL_TOKEN:-}"
 export VERCEL_ORG_ID="${VERCEL_ORG_ID:-}"
 export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
+export EXPO_TOKEN="${EXPO_TOKEN:-}"
 
 # Ensure root can access persistent config if needed
 ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
@@ -134,23 +135,35 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
     if [ ! -f "$MCP_TARGET" ]; then
         if [ -f "$CUSTOMIZATIONS_SRC/mcp_config.json" ]; then
             cp "$CUSTOMIZATIONS_SRC/mcp_config.json" "$MCP_TARGET"
-            echo " [Customizations] Initialized mcp_config.json with Vercel MCP server"
+            echo " [Customizations] Initialized mcp_config.json with Vercel & Expo MCP servers"
         fi
     else
-        # Merge vercel MCP server into existing mcp_config.json if not present
+        # Merge vercel and expo MCP servers into existing mcp_config.json if not present
         node -e '
         const fs = require("fs");
         const targetPath = process.argv[1];
         try {
             const data = JSON.parse(fs.readFileSync(targetPath, "utf8"));
             data.mcpServers = data.mcpServers || {};
+            let updated = false;
             if (!data.mcpServers.vercel) {
                 data.mcpServers.vercel = {
                     command: "mcp-remote",
                     args: ["https://mcp.vercel.com"]
                 };
-                fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
+                updated = true;
                 console.log(" [Customizations] Added Vercel MCP server to existing mcp_config.json");
+            }
+            if (!data.mcpServers.expo) {
+                data.mcpServers.expo = {
+                    command: "npx",
+                    args: ["-y", "expo-mcp-server"]
+                };
+                updated = true;
+                console.log(" [Customizations] Added Expo MCP server to existing mcp_config.json");
+            }
+            if (updated) {
+                fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
             }
         } catch (e) {
             console.error(" [Customizations] Notice: Unable to auto-merge MCP config:", e.message);
@@ -448,6 +461,14 @@ EOF
     chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$VERCEL_CONFIG_DIR"
     chmod 600 "$VERCEL_CONFIG_DIR/auth.json"
     echo " 🟢 Vercel CLI authenticated via VERCEL_TOKEN"
+fi
+
+# Configure Expo / EAS token if provided via environment
+if [ -n "$EXPO_TOKEN" ]; then
+    EXPO_CONFIG_DIR="/home/${DEVELOPER_USER}/.expo"
+    mkdir -p "$EXPO_CONFIG_DIR"
+    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$EXPO_CONFIG_DIR"
+    echo " 🟢 Expo & EAS CLI authenticated via EXPO_TOKEN"
 fi
 
 # Ensure agentapi symlink is available in PATH

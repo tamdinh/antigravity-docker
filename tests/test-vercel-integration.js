@@ -4,41 +4,53 @@ const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
 
-test('Vercel Tools & Customizations Integration', async (t) => {
+test('Vercel & Expo EAS Tools & Customizations Integration', async (t) => {
     const rootDir = path.resolve(__dirname, '..');
     const dockerfilePath = path.join(rootDir, 'Dockerfile');
     const entrypointPath = path.join(rootDir, 'entrypoint.sh');
     const customizationsDir = path.join(rootDir, 'customizations');
 
-    await t.test('Dockerfile installs Vercel and AI agent tooling', () => {
+    await t.test('Dockerfile installs Vercel, Expo EAS, and AI agent tooling', () => {
         const dockerfileContent = fs.readFileSync(dockerfilePath, 'utf8');
         assert.ok(dockerfileContent.includes('vercel'), 'Dockerfile must install vercel CLI');
+        assert.ok(dockerfileContent.includes('eas-cli'), 'Dockerfile must install eas-cli');
         assert.ok(dockerfileContent.includes('skills'), 'Dockerfile must install skills CLI');
         assert.ok(dockerfileContent.includes('add-mcp'), 'Dockerfile must install add-mcp CLI');
         assert.ok(dockerfileContent.includes('mcp-remote'), 'Dockerfile must install mcp-remote');
         assert.ok(dockerfileContent.includes('COPY customizations/ /usr/local/share/antigravity/customizations/'), 'Dockerfile must copy customizations directory');
     });
 
-    await t.test('Vercel MCP configuration is valid and points to official Vercel MCP', () => {
+    await t.test('Vercel & Expo MCP configuration is valid and points to official endpoints', () => {
         const mcpConfigPath = path.join(customizationsDir, 'mcp_config.json');
         assert.ok(fs.existsSync(mcpConfigPath), 'mcp_config.json must exist');
         const mcpData = JSON.parse(fs.readFileSync(mcpConfigPath, 'utf8'));
         assert.ok(mcpData.mcpServers, 'mcpServers object must be defined');
+        
+        // Vercel MCP
         assert.ok(mcpData.mcpServers.vercel, 'vercel MCP server must be configured');
         assert.equal(mcpData.mcpServers.vercel.command, 'mcp-remote');
         assert.deepEqual(mcpData.mcpServers.vercel.args, ['https://mcp.vercel.com']);
+
+        // Expo MCP
+        assert.ok(mcpData.mcpServers.expo, 'expo MCP server must be configured');
+        assert.equal(mcpData.mcpServers.expo.command, 'npx');
+        assert.deepEqual(mcpData.mcpServers.expo.args, ['-y', 'expo-mcp-server']);
     });
 
-    await t.test('Vercel rules exist and provide non-interactive and safety guidance', () => {
+    await t.test('Rules exist and provide Vercel and Expo non-interactive and safety guidance', () => {
         const rulePath = path.join(customizationsDir, 'rules', 'AGENTS.md');
         assert.ok(fs.existsSync(rulePath), 'customizations/rules/AGENTS.md must exist');
         const ruleContent = fs.readFileSync(rulePath, 'utf8');
         assert.ok(ruleContent.includes('VERCEL_TOKEN'), 'Rule must reference VERCEL_TOKEN');
+        assert.ok(ruleContent.includes('EXPO_TOKEN'), 'Rule must reference EXPO_TOKEN');
         assert.ok(ruleContent.includes('--yes'), 'Rule must reference non-interactive flag');
+        assert.ok(ruleContent.includes('--non-interactive'), 'Rule must reference EAS non-interactive flag');
+        assert.ok(ruleContent.includes('--tunnel'), 'Rule must reference Expo tunnel flag');
         assert.ok(ruleContent.includes('.vercel'), 'Rule must mention ignoring .vercel directory');
+        assert.ok(ruleContent.includes('.expo'), 'Rule must mention ignoring .expo directory');
     });
 
-    await t.test('All packaged Vercel skills have valid YAML frontmatter and instructions', () => {
+    await t.test('All packaged Vercel and Expo skills have valid YAML frontmatter and instructions', () => {
         const skillsDir = path.join(customizationsDir, 'skills');
         assert.ok(fs.existsSync(skillsDir), 'customizations/skills must exist');
         const skillFolders = fs.readdirSync(skillsDir).filter(f => fs.statSync(path.join(skillsDir, f)).isDirectory());
@@ -50,7 +62,11 @@ test('Vercel Tools & Customizations Integration', async (t) => {
             'next-best-practices',
             'vercel-ai-sdk',
             'vercel-troubleshooting',
-            'vercel-storage'
+            'vercel-storage',
+            'eas-build-and-deploy',
+            'expo-router-best-practices',
+            'eas-update',
+            'expo-troubleshooting'
         ];
 
         for (const expected of expectedSkills) {
@@ -70,7 +86,7 @@ test('Vercel Tools & Customizations Integration', async (t) => {
         }
     });
 
-    await t.test('Simulates entrypoint customization sync and MCP merging', () => {
+    await t.test('Simulates entrypoint customization sync and MCP merging for both Vercel and Expo', () => {
         const tempBase = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-custom-test-'));
         const mockGeminiConfig = path.join(tempBase, 'config');
         fs.mkdirSync(mockGeminiConfig, { recursive: true });
@@ -89,11 +105,22 @@ test('Vercel Tools & Customizations Integration', async (t) => {
         const targetPath = process.argv[1];
         const data = JSON.parse(fs.readFileSync(targetPath, "utf8"));
         data.mcpServers = data.mcpServers || {};
+        let updated = false;
         if (!data.mcpServers.vercel) {
             data.mcpServers.vercel = {
                 command: "mcp-remote",
                 args: ["https://mcp.vercel.com"]
             };
+            updated = true;
+        }
+        if (!data.mcpServers.expo) {
+            data.mcpServers.expo = {
+                command: "npx",
+                args: ["-y", "expo-mcp-server"]
+            };
+            updated = true;
+        }
+        if (updated) {
             fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
         }
         `;
@@ -104,6 +131,8 @@ test('Vercel Tools & Customizations Integration', async (t) => {
         assert.ok(mergedMcp.mcpServers["custom-tool"], 'User-defined server must be preserved');
         assert.ok(mergedMcp.mcpServers.vercel, 'vercel server must be merged');
         assert.equal(mergedMcp.mcpServers.vercel.command, 'mcp-remote');
+        assert.ok(mergedMcp.mcpServers.expo, 'expo server must be merged');
+        assert.equal(mergedMcp.mcpServers.expo.command, 'npx');
 
         // Cleanup
         fs.rmSync(tempBase, { recursive: true, force: true });
