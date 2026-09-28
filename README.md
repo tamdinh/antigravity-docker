@@ -42,6 +42,8 @@ services:
       - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
       - GH_TOKEN=${GH_TOKEN:-}
       - VERCEL_TOKEN=${VERCEL_TOKEN:-}
+      - DOKPLOY_URL=${DOKPLOY_URL:-}
+      - DOKPLOY_API_KEY=${DOKPLOY_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -85,6 +87,8 @@ volumes:
 | `VERCEL_ORG_ID` | *(empty)* | *(Optional)* Vercel Team/Organization ID for team-scoped deployments. |
 | `VERCEL_PROJECT_ID` | *(empty)* | *(Optional)* Vercel Project ID to link deployments to a specific project. |
 | `EXPO_TOKEN` | *(empty)* | *(Optional)* Expo Access Token for EAS Cloud builds, submissions, and OTA updates without interactive login. |
+| `DOKPLOY_URL` | *(empty)* | *(Optional)* Dokploy server URL (e.g. `https://panel.dokploy.com` or `http://<ip>:3000`) for remote server management. |
+| `DOKPLOY_API_KEY` | *(empty)* | *(Optional)* Dokploy API Key for non-interactive Dokploy CLI and Dokploy MCP authentication. |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 
@@ -272,6 +276,34 @@ The container provides full-stack mobile development support for **React Native,
 
 4. **Authentication**:
    - Provide `EXPO_TOKEN` in `docker-compose.yml` to enable non-interactive cloud builds and submissions.
+
+---
+
+## 🐳 Built-in Dokploy CLI, Skills & MCP Remote Management
+
+The container integrates native support for **[Dokploy](https://github.com/Dokploy/dokploy)** (and the official **[Dokploy CLI](https://github.com/Dokploy/cli)**), allowing both the user and the AI agent to manage self-hosted PaaS infrastructure, applications, compose stacks, and databases remotely.
+
+### What is Included:
+1. **Developer Tools**:
+   - `@dokploy/cli`: Official Dokploy CLI (`dokploy`) providing 400+ commands auto-generated from Dokploy OpenAPI specs for complete server management.
+   - `@dokploy/mcp`: Official Dokploy Model Context Protocol server exposing 500+ tools across 49 categories directly to AI agents.
+
+2. **Pre-configured Dokploy MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json`.
+   - Enables the AI agent to autonomously:
+     - Deploy, restart, and inspect web applications and compose stacks.
+     - Provision and manage databases (PostgreSQL, MySQL, MariaDB, MongoDB, Redis).
+     - Query deployment history, logs, domain status, and server health.
+
+3. **Packaged Antigravity Skill**:
+   - `dokploy`: Located in `~/.gemini/config/skills/dokploy/SKILL.md`. Automatically guides the AI agent with command syntax, `--json` formatting, environment configuration, and diagnostic workflows.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Enforces structured JSON output (`dokploy <group> <action> --json`), non-interactive authentication, pre-flight verification (`dokploy verify`), and secret safety (`.dokploy` gitignore).
+
+5. **Instant CLI Authentication**:
+   - Provide `DOKPLOY_URL` and `DOKPLOY_API_KEY` in `docker-compose.yml` or container environment.
+   - The container automatically authenticates the CLI on startup and persists configuration in the volume, enabling immediate command execution without manual login.
 
 ---
 

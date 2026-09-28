@@ -79,3 +79,43 @@ When developing, testing, building, or publishing React Native mobile applicatio
   *.mobileprovision
   ```
 
+---
+
+# Dokploy Management Guidelines for AI Agents
+
+When developing, testing, deploying, or managing applications, databases, and infrastructure on Dokploy:
+
+## 1. Non-Interactive CLI Automation & Structured Output
+- Always use machine-readable and non-interactive output when executing `dokploy` CLI commands in automated scripts or agent tasks:
+  - Add `--json` to retrieve structured JSON for parsing with `jq` or programmatic inspection:
+    `dokploy project all --json`
+    `dokploy application all --json`
+    `dokploy compose all --json`
+- The environment provides `DOKPLOY_URL` and `DOKPLOY_API_KEY` (or `DOKPLOY_TOKEN`) if configured. The CLI reads these automatically.
+- Alternatively authenticate explicitly:
+  `dokploy auth -u "$DOKPLOY_URL" -t "$DOKPLOY_API_KEY"`
+- Validate authentication status before performing sensitive operations:
+  `dokploy verify`
+
+## 2. Dokploy MCP Tools Integration
+- When the Dokploy MCP server (`dokploy`) is available, prioritize its dedicated tools to query and manage infrastructure directly:
+  - Application lifecycle: create, deploy, redeploy, start, stop, restart, delete.
+  - Project management: create, query, list projects and environments.
+  - Database management: create, start, stop, backup PostgreSQL, MySQL, MariaDB, MongoDB, Redis instances.
+  - Deployment inspection: fetch deployment queues, status, and application logs.
+
+## 3. Environment Variables & Secret Safety
+- Manage application environment variables through Dokploy CLI or isolated `.env` configurations.
+- **Security**: Never commit API keys, tokens, or `~/.dokploy/` credentials to Git. Ensure `.gitignore` includes:
+  ```gitignore
+  .dokploy
+  ```
+
+## 4. Deployment Diagnostics & Troubleshooting
+- Before modifying code or re-triggering builds to fix deployment failures:
+  1. Retrieve application details: `dokploy application one --applicationId <id> --json`
+  2. Inspect deployment logs: `dokploy deployment all --applicationId <id> --json`
+  3. Inspect runtime container logs: `dokploy application logs --applicationId <id>`
+  4. Verify service status and Docker container health via Dokploy API/MCP tools.
+
+

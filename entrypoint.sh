@@ -14,6 +14,8 @@ export VERCEL_TOKEN="${VERCEL_TOKEN:-}"
 export VERCEL_ORG_ID="${VERCEL_ORG_ID:-}"
 export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
 export EXPO_TOKEN="${EXPO_TOKEN:-}"
+export DOKPLOY_URL="${DOKPLOY_URL:-${DOKPLOY_HOST:-}}"
+export DOKPLOY_API_KEY="${DOKPLOY_API_KEY:-${DOKPLOY_TOKEN:-}}"
 
 # Ensure root can access persistent config if needed
 ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
@@ -53,7 +55,13 @@ mkdir -p "$GEMINI_DIR/config/projects" \
          "$GEMINI_DIR/antigravity-cli/log" \
          "$GEMINI_DIR/antigravity-cli/crashes" \
          "$GEMINI_DIR/antigravity-cli/knowledge" \
+         "$GEMINI_DIR/dokploy" \
          "$WORKSPACE_DIR"
+
+# Ensure ~/.dokploy configuration directory persists in gemini volume
+if [ ! -d "/home/${DEVELOPER_USER}/.dokploy" ]; then
+    ln -sfn "$GEMINI_DIR/dokploy" "/home/${DEVELOPER_USER}/.dokploy" 2>/dev/null || true
+fi
 
 # Ensure default outside-of-project and root .json configs exist
 if [ ! -f "$GEMINI_DIR/config/projects/outside-of-project.json" ]; then
@@ -161,6 +169,14 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
                 };
                 updated = true;
                 console.log(" [Customizations] Added Expo MCP server to existing mcp_config.json");
+            }
+            if (!data.mcpServers.dokploy) {
+                data.mcpServers.dokploy = {
+                    command: "npx",
+                    args: ["-y", "@dokploy/mcp"]
+                };
+                updated = true;
+                console.log(" [Customizations] Added Dokploy MCP server to existing mcp_config.json");
             }
             if (updated) {
                 fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
@@ -469,6 +485,17 @@ if [ -n "$EXPO_TOKEN" ]; then
     mkdir -p "$EXPO_CONFIG_DIR"
     chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$EXPO_CONFIG_DIR"
     echo " 🟢 Expo & EAS CLI authenticated via EXPO_TOKEN"
+fi
+
+# Configure Dokploy CLI authentication if provided via environment
+if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ]; then
+    DOKPLOY_CONFIG_DIR="/home/${DEVELOPER_USER}/.dokploy"
+    mkdir -p "$DOKPLOY_CONFIG_DIR"
+    if command -v dokploy >/dev/null 2>&1; then
+        gosu "$DEVELOPER_USER" dokploy auth -u "$DOKPLOY_URL" -t "$DOKPLOY_API_KEY" >/dev/null 2>&1 || true
+    fi
+    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$DOKPLOY_CONFIG_DIR" "$GEMINI_DIR/dokploy" 2>/dev/null || true
+    echo " 🟢 Dokploy CLI authenticated via DOKPLOY_URL and DOKPLOY_API_KEY"
 fi
 
 # Ensure agentapi symlink is available in PATH

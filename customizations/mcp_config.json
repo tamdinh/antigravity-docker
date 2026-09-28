@@ -7,6 +7,10 @@
     "expo": {
       "command": "npx",
       "args": ["-y", "expo-mcp-server"]
+    },
+    "dokploy": {
+      "command": "npx",
+      "args": ["-y", "@dokploy/mcp"]
     }
   }
 }

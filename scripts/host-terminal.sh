@@ -15,7 +15,7 @@ start_container_shell() {
     echo -e " Mode: \033[1;32mContainer Shell (local)\033[0m"
     echo -e " Working Directory: \033[1;36m/workspace\033[0m"
     echo -e " User: \033[1;37m$(whoami)\033[0m"
-    echo -e " Available Tools: \033[0;36magy, git, gh, vercel, node, python3, pip, pnpm\033[0m"
+    echo -e " Available Tools: \033[0;36magy, git, gh, vercel, eas, dokploy, node, python3, pip, pnpm\033[0m"
     echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
     cd /workspace 2>/dev/null || cd "$HOME"
     exec /bin/bash -l
