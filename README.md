@@ -89,6 +89,8 @@ volumes:
 | `EXPO_TOKEN` | *(empty)* | *(Optional)* Expo Access Token for EAS Cloud builds, submissions, and OTA updates without interactive login. |
 | `DOKPLOY_URL` | *(empty)* | *(Optional)* Dokploy server URL (e.g. `https://panel.dokploy.com` or `http://<ip>:3000`) for remote server management. |
 | `DOKPLOY_API_KEY` | *(empty)* | *(Optional)* Dokploy API Key for non-interactive Dokploy CLI and Dokploy MCP authentication. |
+| `BROWSERLESS_TOKEN` | *(empty)* | *(Optional)* Browserless API Token for Browserless hosted MCP server (`https://mcp.browserless.io/mcp`). Enables passwordless browser automation without OAuth. |
+| `BROWSERLESS_API_URL` | *(empty)* | *(Optional)* Custom or regional Browserless endpoint (e.g. `https://production-lon.browserless.io` or self-hosted). Defaults to US West (`https://production-sfo.browserless.io`). |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 
@@ -304,6 +306,31 @@ The container integrates native support for **[Dokploy](https://github.com/Dokpl
 5. **Instant CLI Authentication**:
    - Provide `DOKPLOY_URL` and `DOKPLOY_API_KEY` in `docker-compose.yml` or container environment.
    - The container automatically authenticates the CLI on startup and persists configuration in the volume, enabling immediate command execution without manual login.
+
+---
+
+## 🌐 Browserless MCP Integration
+
+The container provides built-in integration with the official hosted **Browserless Model Context Protocol (MCP) server** ([documentation](https://docs.browserless.io/mcp/browserless-mcp-server/setup)) for cloud browser automation, scraping, and web auditing:
+
+1. **Pre-configured Hosted MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json` pointing to `https://mcp.browserless.io/mcp`.
+   - Bridges communication over stdio using `browserless-mcp` (powered by `mcp-remote`).
+   - Exposes 14 tools to the AI agent across three categories:
+     - **Browser Agent**: Stateful browser agent (`browserless_agent`) driving multi-turn sessions (clicks, typing, navigation, DOM snapshots).
+     - **REST API Tools**: Fast single-turn execution for `browserless_smartscraper` (cascading scraping with CAPTCHA solving), `browserless_function` (custom Puppeteer JS execution), `browserless_export` (PDFs, screenshots, offline HTML/ZIP), `browserless_search`, `browserless_map` (sitemaps/links), and `browserless_performance` (Lighthouse audits).
+     - **Account Tools**: Read-only observability for `browserless_account`, `browserless_usage`, `browserless_logs`, and `browserless_sessions`.
+
+2. **Authentication Options**:
+   - **API Token**: Set `BROWSERLESS_TOKEN` (or `BROWSERLESS_API_KEY`) in your environment. The bridge automatically sends `Authorization: Bearer <token>` without requiring OAuth prompts.
+   - **OAuth Sign-in**: If no token is provided, the hosted server initiates standard Browserless account OAuth.
+   - **Regional Routing**: Configure `BROWSERLESS_API_URL` to route requests to European endpoints (`https://production-lon.browserless.io` or `https://production-ams.browserless.io`).
+
+3. **Packaged Antigravity Skill**:
+   - `browserless`: Located in `~/.gemini/config/skills/browserless/SKILL.md`. Automatically guides the AI agent on tool selection, stateful session handling (`keepSessionAlive: true`), unit conservation, and scraping strategies.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Enforces best practices for tool selection hierarchy, session lifecycle closure, and credential protection.
 
 ---
 

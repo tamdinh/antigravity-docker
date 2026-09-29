@@ -118,4 +118,31 @@ When developing, testing, deploying, or managing applications, databases, and in
   3. Inspect runtime container logs: `dokploy application logs --applicationId <id>`
   4. Verify service status and Docker container health via Dokploy API/MCP tools.
 
+---
+
+# Browserless Guidelines for AI Agents
+
+When performing web scraping, browser automation, web page auditing, or headless browser execution:
+
+## 1. Browserless MCP Integration & Hosted Server
+- The hosted Browserless MCP server is available at `https://mcp.browserless.io/mcp` via the `browserless` MCP server.
+- Tool selection hierarchy:
+  - **Fast content extraction**: Use `browserless_smartscraper` for single-turn web scraping (auto-cascading through HTTP, proxies, headless browser, and CAPTCHA solving).
+  - **Interactive automation**: Use `browserless_agent` for complex workflows requiring clicks, input typing, navigation, or DOM inspection.
+  - **Audits & SEO**: Use `browserless_performance` to run Lighthouse audits.
+  - **Site Mapping**: Use `browserless_map` for URL and sitemap discovery.
+  - **Document & Visual Exports**: Use `browserless_export` for PDF, PNG/JPEG screenshots, or complete page HTML/ZIP archives.
+  - **Custom Scripts**: Use `browserless_function` when arbitrary Puppeteer code execution is needed.
+
+## 2. Session Lifecycle & Unit Efficiency
+- When using `browserless_agent`:
+  - Set `keepSessionAlive: true` on the first call to maintain browser state across multiple turns.
+  - Forward the returned `sessionId` in subsequent calls.
+  - Always issue a final call with `action: "close"` once the interaction is complete to prevent unit leaks.
+
+## 3. Environment Variables & Credentials
+- Provide credentials via `BROWSERLESS_TOKEN` (or `BROWSERLESS_API_KEY`).
+- For European regional endpoints, configure `BROWSERLESS_API_URL` (`https://production-lon.browserless.io` or `https://production-ams.browserless.io`).
+- **Security**: Never log or commit Browserless API tokens into Git.
+
 

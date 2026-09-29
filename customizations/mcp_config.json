@@ -11,6 +11,10 @@
     "dokploy": {
       "command": "npx",
       "args": ["-y", "@dokploy/mcp"]
+    },
+    "browserless": {
+      "command": "browserless-mcp",
+      "args": ["https://mcp.browserless.io/mcp"]
     }
   }
 }

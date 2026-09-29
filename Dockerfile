@@ -135,7 +135,8 @@ COPY proxy/ /usr/local/bin/
 COPY scripts/host-terminal.sh /usr/local/bin/host-terminal.sh
 COPY scripts/set-password.sh /usr/local/bin/set-password
 COPY scripts/show-ssh-key.sh /usr/local/bin/show-ssh-key
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/auth-proxy.js /usr/local/bin/sidecar-manager.js /usr/local/bin/host-terminal.sh /usr/local/bin/set-password /usr/local/bin/show-ssh-key && \
+COPY scripts/browserless-mcp.sh /usr/local/bin/browserless-mcp
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/auth-proxy.js /usr/local/bin/sidecar-manager.js /usr/local/bin/host-terminal.sh /usr/local/bin/set-password /usr/local/bin/show-ssh-key /usr/local/bin/browserless-mcp && \
     ln -sf /usr/local/bin/show-ssh-key /usr/local/bin/git-key
 
 ENV HOME=/home/${USERNAME} \

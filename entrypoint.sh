@@ -16,6 +16,8 @@ export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
 export EXPO_TOKEN="${EXPO_TOKEN:-}"
 export DOKPLOY_URL="${DOKPLOY_URL:-${DOKPLOY_HOST:-}}"
 export DOKPLOY_API_KEY="${DOKPLOY_API_KEY:-${DOKPLOY_TOKEN:-}}"
+export BROWSERLESS_TOKEN="${BROWSERLESS_TOKEN:-${BROWSERLESS_API_KEY:-}}"
+export BROWSERLESS_API_URL="${BROWSERLESS_API_URL:-}"
 
 # Ensure root can access persistent config if needed
 ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
@@ -177,6 +179,14 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
                 };
                 updated = true;
                 console.log(" [Customizations] Added Dokploy MCP server to existing mcp_config.json");
+            }
+            if (!data.mcpServers.browserless) {
+                data.mcpServers.browserless = {
+                    command: "browserless-mcp",
+                    args: ["https://mcp.browserless.io/mcp"]
+                };
+                updated = true;
+                console.log(" [Customizations] Added Browserless MCP server to existing mcp_config.json");
             }
             if (updated) {
                 fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");

@@ -34,6 +34,8 @@ services:
       - EXPO_TOKEN=${EXPO_TOKEN:-}
       - DOKPLOY_URL=${DOKPLOY_URL:-}
       - DOKPLOY_API_KEY=${DOKPLOY_API_KEY:-}
+      - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-}
+      - BROWSERLESS_API_URL=${BROWSERLESS_API_URL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
