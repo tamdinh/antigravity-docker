@@ -126,6 +126,9 @@ const app = new Hono();
 // Global middleware: Apply standard HTTP Security Headers (SEC-14)
 app.use('*', async (c, next) => {
     await next();
+    if (c.req.path.startsWith('/ide') || c.req.path.startsWith('/vscode-remote-resource')) {
+        return; // Allow code-server to manage its own CSP, X-Frame-Options, and MIME policies
+    }
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('X-Frame-Options', 'SAMEORIGIN');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -440,6 +443,18 @@ app.all('/ide/*', (c) => {
     return proxyWebRequest(c, IDE_PORT, strippedPath, { isIde: true });
 });
 
+// Root-level /vscode-remote-resource for code-server extensions and webviews
+app.all('/vscode-remote-resource/*', (c) => {
+    if (!ENABLE_IDE) return c.text('Web IDE is disabled (ENABLE_IDE=false)', 404);
+    const rawUrl = c.req.raw.url.replace(/^https?:\/\/[^/]+/, '');
+    return proxyWebRequest(c, IDE_PORT, rawUrl, { isIde: true });
+});
+app.all('/vscode-remote-resource', (c) => {
+    if (!ENABLE_IDE) return c.text('Web IDE is disabled (ENABLE_IDE=false)', 404);
+    const rawUrl = c.req.raw.url.replace(/^https?:\/\/[^/]+/, '');
+    return proxyWebRequest(c, IDE_PORT, rawUrl, { isIde: true });
+});
+
 // SPA check & Upstream Antigravity Hub proxy
 app.all('*', (c) => {
     const pathname = c.req.path;
@@ -508,7 +523,7 @@ const server = Bun.serve({
                     return new Response('Host Terminal is disabled (ENABLE_TERMINAL=false)', { status: 404 });
                 }
                 wsTargetPort = TERMINAL_PORT;
-            } else if (url.pathname.startsWith('/ide')) {
+            } else if (url.pathname.startsWith('/ide') || url.pathname.startsWith('/vscode-remote-resource') || url.searchParams.has('reconnectionToken')) {
                 if (!ENABLE_IDE) {
                     return new Response('Web IDE is disabled (ENABLE_IDE=false)', { status: 404 });
                 }
@@ -543,10 +558,22 @@ const server = Bun.serve({
             const { wsTargetPort, wsTargetPath, headers } = ws.data;
             const targetUrl = `ws://127.0.0.1:${wsTargetPort}${wsTargetPath}`;
             const upstreamHeaders = { ...headers };
-            upstreamHeaders['host'] = `localhost:${wsTargetPort}`;
-            upstreamHeaders['origin'] = `http://localhost:${wsTargetPort}`;
-            if (upstreamHeaders['referer']) {
-                upstreamHeaders['referer'] = upstreamHeaders['referer'].replace(/^https?:\/\/[^/]+/, `http://localhost:${wsTargetPort}`);
+            if (wsTargetPort === IDE_PORT) {
+                const hostHeader = headers['x-forwarded-host'] || headers['host'] || `localhost:${IDE_PORT}`;
+                const protoHeader = headers['x-forwarded-proto'] || 'http';
+                upstreamHeaders['host'] = hostHeader;
+                upstreamHeaders['x-forwarded-host'] = hostHeader;
+                upstreamHeaders['x-forwarded-proto'] = protoHeader;
+                upstreamHeaders['x-forwarded-prefix'] = '/ide';
+                if (headers['origin']) {
+                    upstreamHeaders['origin'] = headers['origin'];
+                }
+            } else {
+                upstreamHeaders['host'] = `localhost:${wsTargetPort}`;
+                upstreamHeaders['origin'] = `http://localhost:${wsTargetPort}`;
+                if (upstreamHeaders['referer']) {
+                    upstreamHeaders['referer'] = upstreamHeaders['referer'].replace(/^https?:\/\/[^/]+/, `http://localhost:${wsTargetPort}`);
+                }
             }
 
             const isConnectWs = wsTargetPort === TARGET_PORT && typeof wsTargetPath === 'string' && wsTargetPath.startsWith('/connect-websocket');

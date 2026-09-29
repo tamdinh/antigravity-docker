@@ -259,9 +259,9 @@ function buildInjectedScript() {
 
     const modelsButtonHtml = `
             <a href="/models" target="_blank" rel="noopener noreferrer" class="agy-injected-btn agy-injected-btn-models" title="Configure Custom Models">
-                \${MODELS_ICON_SVG}
+                ${MODELS_ICON_SVG}
                 <span class="agy-injected-btn-text">Custom Models</span>
-                \${EXTERNAL_ICON_SVG}
+                ${EXTERNAL_ICON_SVG}
             </a>`;
 
     const ideButtonHtml = ENABLE_IDE ? `

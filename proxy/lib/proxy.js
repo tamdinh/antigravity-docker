@@ -76,12 +76,27 @@ async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
     }
 
     const proxyHeaders = getHeaderMap(c.req.raw.headers);
-    proxyHeaders['host'] = `localhost:${targetPort}`;
-    proxyHeaders['origin'] = `http://localhost:${targetPort}`;
-
     const referer = c.req.header('referer');
-    if (referer) {
-        proxyHeaders['referer'] = referer.replace(/^https?:\/\/[^/]+/, `http://localhost:${targetPort}`);
+
+    if (isIde) {
+        const hostHeader = c.req.header('x-forwarded-host') || c.req.header('host') || `localhost:${targetPort}`;
+        const protoHeader = c.req.header('x-forwarded-proto') || 'http';
+        proxyHeaders['host'] = hostHeader;
+        proxyHeaders['x-forwarded-host'] = hostHeader;
+        proxyHeaders['x-forwarded-proto'] = protoHeader;
+        proxyHeaders['x-forwarded-prefix'] = '/ide';
+        if (c.req.header('origin')) {
+            proxyHeaders['origin'] = c.req.header('origin');
+        } else {
+            delete proxyHeaders['origin'];
+        }
+    } else {
+        proxyHeaders['host'] = `localhost:${targetPort}`;
+        proxyHeaders['origin'] = `http://localhost:${targetPort}`;
+
+        if (referer) {
+            proxyHeaders['referer'] = referer.replace(/^https?:\/\/[^/]+/, `http://localhost:${targetPort}`);
+        }
     }
 
     const parsedUrl = new URL(c.req.raw.url);
@@ -177,10 +192,15 @@ async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
             }
         }
 
-        if (isIde && resHeaders.has('location')) {
-            const loc = resHeaders.get('location');
-            if (loc && loc.startsWith('/')) {
-                resHeaders.set('location', '/ide' + loc);
+        if (isIde) {
+            if (resHeaders.has('location')) {
+                const loc = resHeaders.get('location');
+                if (loc && loc.startsWith('/') && !loc.startsWith('/ide/')) {
+                    resHeaders.set('location', '/ide' + loc);
+                }
+            }
+            if (upstreamRes.status === 404 && targetPath.endsWith('.js')) {
+                resHeaders.set('content-type', 'application/javascript; charset=utf-8');
             }
         }
 
@@ -194,7 +214,9 @@ async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
                 html = replaceFaviconInHtml(html);
                 html = html.replace(/<title>ttyd - Terminal<\/title>/i, '<title>Antigravity Terminal</title>');
             } else if (isIde) {
-                html = replaceFaviconInHtml(html);
+                if (!targetPath.includes('webWorkerExtensionHostIframe.html')) {
+                    html = replaceFaviconInHtml(html);
+                }
             } else if (isUpstream) {
                 const csrfMatch = html.match(/"csrfToken":"([^"]+)"/);
                 if (csrfMatch && sidecarManager) {
