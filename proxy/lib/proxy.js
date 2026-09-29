@@ -1,11 +1,13 @@
 'use strict';
 
-const http = require('node:http');
-const zlib = require('node:zlib');
-const { TERMINAL_PORT, IDE_PORT, ENABLE_IDE, ENABLE_TERMINAL } = require('./config');
 const { replaceFaviconInHtml } = require('./favicon');
 const { renderServiceStartingPage } = require('./pages');
 const { INJECTED_UI_STYLES, buildInjectedScript } = require('./ui-injection');
+const {
+    CUSTOM_PLACEHOLDER_REGEX,
+    isCustomPlaceholder,
+    matchCustomPlaceholders
+} = require('./models-manager');
 
 // Hop-by-hop headers defined in RFC 7230 / RFC 9110 to strip when proxying
 const HOP_BY_HOP_HEADERS = new Set([
@@ -17,241 +19,6 @@ const HOP_BY_HOP_HEADERS = new Set([
     'upgrade',
 ]);
 
-// Dedicated persistent HTTP Agent for upstream proxy requests
-const proxyAgent = new http.Agent({
-    keepAlive: true,
-    keepAliveMsecs: 30000,
-    maxSockets: 256,
-    maxFreeSockets: 64,
-    timeout: 0
-});
-
-// Strip hop-by-hop headers from an incoming headers object
-function filterHopByHop(headers) {
-    const out = {};
-    for (const [key, value] of Object.entries(headers)) {
-        if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
-            out[key] = value;
-        }
-    }
-    return out;
-}
-
-// Buffer an HTML response, apply a transform, then send it.
-// Owns the res.writeHead() call to ensure Content-Length is correct after
-// transformation. Falls back to streaming if the response exceeds MAX_HTML_BUFFER_BYTES.
-function interceptHtmlResponse(proxyRes, res, statusCode, resHeaders, transform) {
-    const MAX_HTML_BUFFER_BYTES = 5 * 1024 * 1024;
-    const chunks = [];
-    let totalLength = 0;
-    let tooLarge = false;
-
-    proxyRes.on('data', (chunk) => {
-        if (tooLarge) {
-            res.write(chunk);
-            return;
-        }
-        totalLength += chunk.length;
-        if (totalLength > MAX_HTML_BUFFER_BYTES) {
-            tooLarge = true;
-            // Headers not yet sent — write them now before streaming
-            res.writeHead(statusCode, resHeaders);
-            res.flushHeaders();
-            for (const c of chunks) res.write(c);
-            res.write(chunk);
-            return;
-        }
-        chunks.push(chunk);
-    });
-
-    proxyRes.on('error', (err) => {
-        console.error('[HTTP Proxy Upstream Stream Error]', err.message);
-        if (!res.headersSent) {
-            res.writeHead(502, { 'Content-Type': 'text/plain' });
-            res.end('Upstream stream error');
-        } else {
-            res.destroy();
-        }
-    });
-
-    proxyRes.on('end', () => {
-        if (tooLarge) {
-            res.end();
-            return;
-        }
-        let rawBuffer = Buffer.concat(chunks);
-        const encoding = (resHeaders['content-encoding'] || '').toLowerCase();
-        if (encoding === 'gzip') {
-            try {
-                rawBuffer = zlib.gunzipSync(rawBuffer);
-            } catch (e) {
-                console.error('[Proxy Gateway] Failed to decompress gzipped HTML:', e.message);
-            }
-        } else if (encoding === 'deflate') {
-            try {
-                rawBuffer = zlib.inflateSync(rawBuffer);
-            } catch (e) {
-                console.error('[Proxy Gateway] Failed to decompress deflated HTML:', e.message);
-            }
-        } else if (encoding === 'br') {
-            try {
-                rawBuffer = zlib.brotliDecompressSync(rawBuffer);
-            } catch (e) {
-                console.error('[Proxy Gateway] Failed to decompress brotli HTML:', e.message);
-            }
-        }
-
-        let html = rawBuffer.toString('utf8');
-        html = transform(html);
-        // Update content-length to reflect transformed HTML size, then send uncompressed
-        resHeaders['content-length'] = Buffer.byteLength(html, 'utf8');
-        delete resHeaders['content-encoding'];
-        res.writeHead(statusCode, resHeaders);
-        res.end(html);
-    });
-}
-
-// Forward request to ttyd Web Terminal
-function proxyToTerminal(req, res, targetPath) {
-    if (req.socket) req.socket.setNoDelay(true);
-    if (res.socket) res.socket.setNoDelay(true);
-
-    const proxyHeaders = filterHopByHop(req.headers);
-    proxyHeaders['host'] = `localhost:${TERMINAL_PORT}`;
-    proxyHeaders['origin'] = `http://localhost:${TERMINAL_PORT}`;
-
-    // Request uncompressed body only for top-level HTML requests to preserve compression on web assets
-    const wantsHtml = (req.headers.accept || '').includes('text/html') || targetPath === '/' || targetPath === '/terminal' || targetPath === '/terminal/';
-    if (wantsHtml) {
-        proxyHeaders['accept-encoding'] = 'identity';
-    }
-
-    const proxyReq = http.request({
-        hostname: '127.0.0.1',
-        port: TERMINAL_PORT,
-        path: targetPath,
-        method: req.method,
-        headers: proxyHeaders,
-        agent: proxyAgent
-    }, (proxyRes) => {
-        if (proxyRes.socket) proxyRes.socket.setNoDelay(true);
-
-        const resHeaders = filterHopByHop(proxyRes.headers);
-        resHeaders['x-accel-buffering'] = 'no';
-
-        const encoding = resHeaders['content-encoding'];
-        const isUncompressed = !encoding || encoding === 'identity';
-        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isUncompressed;
-        if (isHtmlResponse && req.method === 'GET') {
-            interceptHtmlResponse(proxyRes, res, proxyRes.statusCode, resHeaders, (html) => {
-                html = replaceFaviconInHtml(html);
-                html = html.replace(/<title>ttyd - Terminal<\/title>/i, '<title>Antigravity Terminal</title>');
-                return html;
-            });
-            return;
-        }
-
-        res.writeHead(proxyRes.statusCode, resHeaders);
-        res.flushHeaders();
-        proxyRes.pipe(res);
-    });
-
-    proxyReq.on('error', (err) => {
-        if (!res.headersSent) {
-            res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(renderServiceStartingPage('Host Terminal'));
-        } else {
-            res.destroy();
-        }
-    });
-
-    req.pipe(proxyReq, { end: true });
-}
-
-// Forward request to code-server Web IDE
-function proxyToIde(req, res, targetPath) {
-    if (req.socket) req.socket.setNoDelay(true);
-    if (res.socket) res.socket.setNoDelay(true);
-
-    const proxyHeaders = filterHopByHop(req.headers);
-    const hostHeader = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${IDE_PORT}`;
-    const protoHeader = req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http');
-
-    proxyHeaders['host'] = hostHeader;
-    proxyHeaders['x-forwarded-host'] = hostHeader;
-    proxyHeaders['x-forwarded-proto'] = protoHeader;
-    proxyHeaders['x-forwarded-prefix'] = '/ide';
-    if (req.headers['origin']) {
-        proxyHeaders['origin'] = req.headers['origin'];
-    } else {
-        delete proxyHeaders['origin'];
-    }
-
-    // Allow code-server to manage its own Content-Security-Policy & Frame Options
-    res.removeHeader('Content-Security-Policy');
-    res.removeHeader('X-Frame-Options');
-
-    // Request uncompressed body only for top-level HTML requests to preserve gzip/brotli on IDE bundles
-    const wantsHtml = (req.headers.accept || '').includes('text/html') || targetPath === '/' || targetPath.startsWith('/?');
-    if (wantsHtml) {
-        proxyHeaders['accept-encoding'] = 'identity';
-    }
-
-    const proxyReq = http.request({
-        hostname: '127.0.0.1',
-        port: IDE_PORT,
-        path: targetPath,
-        method: req.method,
-        headers: proxyHeaders,
-        agent: proxyAgent
-    }, (proxyRes) => {
-        if (proxyRes.socket) proxyRes.socket.setNoDelay(true);
-
-        const resHeaders = filterHopByHop(proxyRes.headers);
-
-        // Rewrite Location headers to stay under the /ide prefix
-        if (resHeaders['location'] && typeof resHeaders['location'] === 'string') {
-            let loc = resHeaders['location'];
-            loc = loc.replace(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/, '');
-            if (loc.startsWith('/') && !loc.startsWith('/ide/')) {
-                resHeaders['location'] = '/ide' + loc;
-            } else {
-                resHeaders['location'] = loc;
-            }
-        }
-        resHeaders['x-accel-buffering'] = 'no';
-
-        const encoding = (resHeaders['content-encoding'] || '').toLowerCase();
-        const isSupportedEncoding = !encoding || encoding === 'identity' || encoding === 'gzip' || encoding === 'deflate' || encoding === 'br';
-        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isSupportedEncoding;
-        const isMainIdeDocument = targetPath === '/' || targetPath.startsWith('/?');
-        if (isHtmlResponse && req.method === 'GET' && isMainIdeDocument) {
-            interceptHtmlResponse(proxyRes, res, proxyRes.statusCode, resHeaders, replaceFaviconInHtml);
-            return;
-        }
-
-        // Prevent browser strict MIME check errors on missing optional JS modules (e.g. vsda.js)
-        if (proxyRes.statusCode === 404 && targetPath.endsWith('.js')) {
-            resHeaders['content-type'] = 'application/javascript; charset=utf-8';
-        }
-
-        res.writeHead(proxyRes.statusCode, resHeaders);
-        res.flushHeaders();
-        proxyRes.pipe(res);
-    });
-
-    proxyReq.on('error', (err) => {
-        if (!res.headersSent) {
-            res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8' });
-            res.end(renderServiceStartingPage('Web IDE'));
-        } else {
-            res.destroy();
-        }
-    });
-
-    req.pipe(proxyReq, { end: true });
-}
-
 // Helper to determine if a request path corresponds to a browser SPA frontend route
 function isSpaRoute(pathname) {
     if (pathname === '/' || pathname === '/index.html') return true;
@@ -262,63 +29,178 @@ function isSpaRoute(pathname) {
     return false;
 }
 
-// Proxy HTTP request to the main Antigravity upstream (agy), injecting tools UI on HTML responses
-function proxyToUpstream(req, res, targetPort, sidecarManager) {
-    if (req.socket) req.socket.setNoDelay(true);
-    if (res.socket) res.socket.setNoDelay(true);
+// Convert headers to a standard lowercased key-value map filtering hop-by-hop headers
+function getHeaderMap(headers) {
+    const out = {};
+    if (headers && typeof headers.entries === 'function') {
+        for (const [k, v] of headers.entries()) {
+            if (!HOP_BY_HOP_HEADERS.has(k.toLowerCase())) {
+                out[k.toLowerCase()] = v;
+            }
+        }
+    } else if (headers && typeof headers === 'object') {
+        for (const [k, v] of Object.entries(headers)) {
+            if (!HOP_BY_HOP_HEADERS.has(k.toLowerCase())) {
+                out[k.toLowerCase()] = v;
+            }
+        }
+    }
+    return out;
+}
 
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+const MAX_ACTIVE_CONVERSATIONS = 500;
+const activeConversationModels = new Map();
 
-    const proxyHeaders = filterHopByHop(req.headers);
-    proxyHeaders['host'] = `localhost:${targetPort}`;
-    proxyHeaders['origin'] = `http://localhost:${targetPort}`;
-    if (req.headers['referer']) {
-        proxyHeaders['referer'] = req.headers['referer'].replace(/^https?:\/\/[^/]+/, `http://localhost:${targetPort}`);
+function setTrackedModel(key, modelConfig, map = activeConversationModels) {
+    if (!key) return;
+    if (map.size >= MAX_ACTIVE_CONVERSATIONS && !map.has(key)) {
+        for (const k of map.keys()) {
+            if (k !== 'latest' && k !== 'latestConvoId') {
+                map.delete(k);
+                break;
+            }
+        }
+    }
+    map.set(key, modelConfig);
+}
+
+// Modern Web standard reverse proxy handler for Hono & Bun
+async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
+    const { isTerminal, isIde, isUpstream, sidecarManager, modelsManager } = options;
+
+    // Guard against scheme-relative URLs and SSRF: ensure targetPath starts with single slash
+    const safePath = '/' + targetPath.replace(/^\/+/, '');
+    const targetUrl = new URL(safePath, `http://127.0.0.1:${targetPort}`);
+    if (targetUrl.hostname !== '127.0.0.1' || targetUrl.port !== String(targetPort)) {
+        return c.text('Invalid proxy target', 400);
     }
 
-    // Request uncompressed body only for SPA document routes and HTML requests to preserve compression
-    if (isSpaRoute(parsedUrl.pathname) || (req.headers.accept || '').includes('text/html')) {
+    const proxyHeaders = getHeaderMap(c.req.raw.headers);
+    proxyHeaders['host'] = `localhost:${targetPort}`;
+    proxyHeaders['origin'] = `http://localhost:${targetPort}`;
+
+    const referer = c.req.header('referer');
+    if (referer) {
+        proxyHeaders['referer'] = referer.replace(/^https?:\/\/[^/]+/, `http://localhost:${targetPort}`);
+    }
+
+    const parsedUrl = new URL(c.req.raw.url);
+    const convoMatch = parsedUrl.pathname.match(/\/c\/([0-9a-fA-F-]{36})/);
+    if (convoMatch) {
+        activeConversationModels.set('latestConvoId', convoMatch[1]);
+    } else if (referer) {
+        const refMatch = referer.match(/\/c\/([0-9a-fA-F-]{36})/);
+        if (refMatch) {
+            activeConversationModels.set('latestConvoId', refMatch[1]);
+        }
+    }
+
+    const isModelEndpoint = isModelProcedure(parsedUrl.pathname);
+    const shouldInterceptModels = Boolean(
+        isUpstream &&
+        modelsManager &&
+        typeof modelsManager.hasEnabledModels === 'function' &&
+        modelsManager.hasEnabledModels() &&
+        isModelEndpoint
+    );
+
+    const wantsHtml = (c.req.header('accept') || '').includes('text/html') ||
+        targetPath === '/' || targetPath === '/terminal' || targetPath === '/terminal/' || targetPath.startsWith('/?') ||
+        shouldInterceptModels;
+    if (wantsHtml) {
         proxyHeaders['accept-encoding'] = 'identity';
     }
 
-    const proxyReq = http.request({
-        hostname: '127.0.0.1',
-        port: targetPort,
-        path: req.url,
-        method: req.method,
-        headers: proxyHeaders,
-        agent: proxyAgent,
-    }, (proxyRes) => {
-        if (proxyRes.socket) proxyRes.socket.setNoDelay(true);
+    const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD';
+    let requestBody = undefined;
 
-        const resHeaders = filterHopByHop(proxyRes.headers);
+    if (hasBody) {
+        if (isUpstream && parsedUrl.pathname.startsWith('/exa.language_server_pb.LanguageServerService/')) {
+            try {
+                let textBody = await c.req.text();
+                let parsed = null;
+                try { parsed = JSON.parse(textBody); } catch (e) {}
+                const cascadeId = parsed?.cascadeId || parsed?.payload?.cascadeId;
+                const convoId = parsed?.conversationId || parsed?.payload?.conversationId;
+                if (convoId || cascadeId) {
+                    activeConversationModels.set('latestConvoId', convoId || cascadeId);
+                }
+
+                const matches = matchCustomPlaceholders(textBody);
+                if (matches.length > 0) {
+                    for (const placeholder of matches) {
+                        const modelConfig = modelsManager?.getModelByPlaceholder?.(placeholder);
+                        if (modelConfig) {
+                            if (cascadeId) setTrackedModel(cascadeId, modelConfig);
+                            if (convoId) setTrackedModel(convoId, modelConfig);
+                            if (convoId || cascadeId) activeConversationModels.set('latestConvoId', convoId || cascadeId);
+                            setTrackedModel('latest', modelConfig);
+                        }
+                    }
+                }
+                requestBody = textBody;
+            } catch (readErr) {
+                requestBody = c.req.raw.body;
+            }
+        } else {
+            requestBody = c.req.raw.body;
+        }
+    }
+
+    try {
+        const upstreamRes = await fetch(targetUrl.toString(), {
+            method: c.req.method,
+            headers: proxyHeaders,
+            body: requestBody,
+            redirect: 'manual',
+            // @ts-ignore
+            duplex: 'half'
+        });
+
+        const resHeaders = new Headers();
+        for (const [key, value] of upstreamRes.headers.entries()) {
+            if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase()) && key.toLowerCase() !== 'content-encoding') {
+                resHeaders.set(key, value);
+            }
+        }
+        resHeaders.set('x-accel-buffering', 'no');
 
         const allowedOrigins = process.env.ALLOWED_ORIGINS
             ? new Set(process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()))
             : null;
-        if (resHeaders['access-control-allow-origin'] && req.headers.origin) {
-            if (allowedOrigins && allowedOrigins.has(req.headers.origin)) {
-                resHeaders['access-control-allow-origin'] = req.headers.origin;
+        const originHeader = c.req.header('origin');
+        if (upstreamRes.headers.has('access-control-allow-origin') && originHeader) {
+            if (allowedOrigins && allowedOrigins.has(originHeader)) {
+                resHeaders.set('access-control-allow-origin', originHeader);
             } else if (!allowedOrigins) {
-                delete resHeaders['access-control-allow-origin'];
+                resHeaders.delete('access-control-allow-origin');
             }
         }
 
-        resHeaders['x-accel-buffering'] = 'no';
+        if (isIde && resHeaders.has('location')) {
+            const loc = resHeaders.get('location');
+            if (loc && loc.startsWith('/')) {
+                resHeaders.set('location', '/ide' + loc);
+            }
+        }
 
-        const encoding = (resHeaders['content-encoding'] || '').toLowerCase();
-        const isSupportedEncoding = !encoding || encoding === 'identity' || encoding === 'gzip' || encoding === 'deflate' || encoding === 'br';
-        const isHtmlResponse = (resHeaders['content-type'] || '').includes('text/html') && isSupportedEncoding;
+        const contentType = upstreamRes.headers.get('content-type') || '';
+        const isHtmlResponse = contentType.includes('text/html');
 
-        // INTERCEPT HTML RESPONSES TO INJECT WORKSPACE TOOLS BUTTONS AND OVERRIDE FAVICON
-        if (isHtmlResponse && req.method === 'GET') {
-            interceptHtmlResponse(proxyRes, res, proxyRes.statusCode, resHeaders, (html) => {
+        if (isHtmlResponse && c.req.method === 'GET') {
+            let html = await upstreamRes.text();
+
+            if (isTerminal) {
+                html = replaceFaviconInHtml(html);
+                html = html.replace(/<title>ttyd - Terminal<\/title>/i, '<title>Antigravity Terminal</title>');
+            } else if (isIde) {
+                html = replaceFaviconInHtml(html);
+            } else if (isUpstream) {
                 const csrfMatch = html.match(/"csrfToken":"([^"]+)"/);
                 if (csrfMatch && sidecarManager) {
                     sidecarManager.setCsrfToken(csrfMatch[1]);
                 }
 
-                // Remove existing upstream/emoji favicon tags and inject Antigravity favicon
                 html = replaceFaviconInHtml(html);
 
                 const customScript = buildInjectedScript();
@@ -332,186 +214,273 @@ function proxyToUpstream(req, res, targetPort, sidecarManager) {
                         html += injection;
                     }
                 }
-                return html;
+            }
+
+            resHeaders.delete('content-length');
+            return new Response(html, {
+                status: upstreamRes.status,
+                headers: resHeaders
             });
-            return;
         }
 
-        res.writeHead(proxyRes.statusCode, resHeaders);
-        res.flushHeaders();
-        proxyRes.pipe(res);
-    });
+        if (shouldInterceptModels && upstreamRes.ok) {
+            let rawText;
+            try {
+                rawText = await upstreamRes.text();
+            } catch (readErr) {
+                throw readErr;
+            }
 
-    proxyReq.on('socket', (sock) => {
-        sock.setNoDelay(true);
-    });
+            try {
+                const data = JSON.parse(rawText);
+                if (data && typeof data === 'object') {
+                    injectCustomModels(data, modelsManager);
+                    resHeaders.delete('content-length');
+                    return c.json(data, upstreamRes.status, Object.fromEntries(resHeaders.entries()));
+                }
+            } catch (parseErr) {
+                // Fallback to returning original raw text without touching upstreamRes.body
+            }
 
-    const clientAbortHandler = () => {
-        if (!res.writableFinished && !res.writableEnded && !proxyReq.destroyed) {
-            proxyReq.destroy();
+            return new Response(rawText, {
+                status: upstreamRes.status,
+                headers: resHeaders
+            });
         }
-    };
 
-    res.on('close', clientAbortHandler);
-    res.on('error', clientAbortHandler);
-    req.on('error', clientAbortHandler);
-
-    proxyReq.on('error', (err) => {
-        console.error('[HTTP Proxy Error]', err.message);
-        if (!res.headersSent) {
-            res.writeHead(502, { 'Content-Type': 'text/plain' });
-            res.end('Antigravity upstream server unavailable.');
+        return new Response(upstreamRes.body, {
+            status: upstreamRes.status,
+            headers: resHeaders
+        });
+    } catch (err) {
+        console.error(`[HTTP Gateway Upstream Error] ${c.req.method} ${targetPath} -> port ${targetPort}:`, err.message);
+        if (isTerminal) {
+            return c.html(renderServiceStartingPage('Host Terminal'), 503);
+        } else if (isIde) {
+            return c.html(renderServiceStartingPage('Web IDE'), 503);
         } else {
-            res.destroy();
+            return c.text('Antigravity upstream server unavailable.', 502);
         }
-    });
-
-    req.pipe(proxyReq, { end: true });
+    }
 }
 
-// Helper to serialize HTTP status and headers into raw wire format
-function formatRawHttpResponse(statusCode, statusMessage, headers) {
-    let raw = `HTTP/1.1 ${statusCode}${statusMessage ? ' ' + statusMessage : ''}\r\n`;
-    for (const [key, value] of Object.entries(headers)) {
-        if (Array.isArray(value)) {
-            for (const v of value) raw += `${key}: ${v}\r\n`;
-        } else {
-            raw += `${key}: ${value}\r\n`;
-        }
-    }
-    raw += '\r\n';
-    return raw;
+const MODEL_PROCEDURE_ENDPOINTS = [
+    '/GetUserStatus',
+    '/GetCascadeModelConfigData',
+    '/GetCascadeModelConfigs'
+];
+
+/**
+ * Checks if an RPC procedure name or request path corresponds to a model configuration endpoint.
+ */
+function isModelProcedure(pathOrName) {
+    if (typeof pathOrName !== 'string') return false;
+    return MODEL_PROCEDURE_ENDPOINTS.some(endpoint => pathOrName.endsWith(endpoint));
 }
 
-// Handle WebSocket / Upgrade requests
-function handleWebSocketUpgrade(req, clientSocket, head, targetPort) {
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    let wsTargetPort = targetPort;
-    let wsTargetPath = req.url;
+const MAX_CONCURRENT_STREAMS = 500;
 
-    if (parsedUrl.pathname.startsWith('/terminal')) {
-        if (!ENABLE_TERMINAL) {
-            clientSocket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-            clientSocket.destroy();
-            return;
-        }
-        wsTargetPort = TERMINAL_PORT;
-        wsTargetPath = req.url;
-    } else if (parsedUrl.pathname.startsWith('/ide')) {
-        if (!ENABLE_IDE) {
-            clientSocket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-            clientSocket.destroy();
-            return;
-        }
-        wsTargetPort = IDE_PORT;
-        let p = req.url.replace(/^\/ide/, '');
-        if (!p.startsWith('/')) p = '/' + p;
-        wsTargetPath = p;
-    } else if (parsedUrl.pathname.startsWith('/vscode-remote-resource')) {
-        if (!ENABLE_IDE) {
-            clientSocket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-            clientSocket.destroy();
-            return;
-        }
-        wsTargetPort = IDE_PORT;
-        wsTargetPath = req.url;
-    } else {
-        if (!targetPort) {
-            clientSocket.write('HTTP/1.1 503 Service Unavailable\r\n\r\n');
-            clientSocket.destroy();
-            return;
-        }
-        wsTargetPort = targetPort;
-    }
+/**
+ * Inspects outgoing client messages on /connect-websocket, tracks active stream IDs,
+ * and maps custom model placeholders to active conversation/cascade context for translation.
+ */
+function handleWebSocketClientMessage(ws, message, modelsManager, activeModelsMap = activeConversationModels) {
+    if (!ws.data || !ws.data.activeStreams) return message;
 
-    clientSocket.setNoDelay(true);
-    clientSocket.setTimeout(0);
-    if (clientSocket.setKeepAlive) clientSocket.setKeepAlive(true, 15000);
+    let isJsonCandidate = false;
+    let text = null;
+    let isBinary = false;
 
-    const proxyHeaders = { ...req.headers };
-    if (wsTargetPort === IDE_PORT) {
-        const hostHeader = req.headers['x-forwarded-host'] || req.headers['host'] || `localhost:${IDE_PORT}`;
-        const protoHeader = req.headers['x-forwarded-proto'] || (req.socket?.encrypted ? 'https' : 'http');
-        proxyHeaders['host'] = hostHeader;
-        proxyHeaders['x-forwarded-host'] = hostHeader;
-        proxyHeaders['x-forwarded-proto'] = protoHeader;
-        proxyHeaders['x-forwarded-prefix'] = '/ide';
-        if (req.headers['origin']) {
-            proxyHeaders['origin'] = req.headers['origin'];
+    if (typeof message === 'string') {
+        if (message.startsWith('{')) {
+            isJsonCandidate = true;
+            text = message;
         }
-    } else {
-        proxyHeaders['host'] = `localhost:${wsTargetPort}`;
-        proxyHeaders['origin'] = `http://localhost:${wsTargetPort}`;
-        if (proxyHeaders['referer']) {
-            proxyHeaders['referer'] = proxyHeaders['referer'].replace(/^https?:\/\/[^/]+/, `http://localhost:${wsTargetPort}`);
+    } else if (message && typeof message === 'object') {
+        const u8 = new Uint8Array(message);
+        if (u8.length > 0 && u8[0] === 0x7b /* '{' */) {
+            isJsonCandidate = true;
+            text = Buffer.from(message).toString('utf8');
+            isBinary = true;
         }
     }
 
-    const upstreamReq = http.request({
-        hostname: '127.0.0.1',
-        port: wsTargetPort,
-        path: wsTargetPath,
-        method: req.method,
-        headers: proxyHeaders,
-        agent: false,
-    });
+    if (!isJsonCandidate || !text) return message;
 
-    const earlyClientErrorHandler = () => {
-        upstreamReq.destroy();
-    };
-    clientSocket.once('error', earlyClientErrorHandler);
-    clientSocket.once('close', earlyClientErrorHandler);
+    try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') {
+            if (parsed.type === 'start' && parsed.streamId && typeof parsed.procedure === 'string') {
+                if (ws.data.activeStreams.size >= MAX_CONCURRENT_STREAMS) {
+                    const oldest = ws.data.activeStreams.keys().next().value;
+                    if (oldest !== undefined) ws.data.activeStreams.delete(oldest);
+                }
+                ws.data.activeStreams.set(parsed.streamId, parsed.procedure);
+            } else if (parsed.type === 'cancel' && parsed.streamId) {
+                ws.data.activeStreams.delete(parsed.streamId);
+            }
 
-    upstreamReq.on('upgrade', (upstreamRes, upstreamSocket, upstreamHead) => {
-        clientSocket.removeListener('error', earlyClientErrorHandler);
-        clientSocket.removeListener('close', earlyClientErrorHandler);
-        upstreamSocket.setNoDelay(true);
-        upstreamSocket.setTimeout(0);
-        if (upstreamSocket.setKeepAlive) upstreamSocket.setKeepAlive(true, 15000);
+            const cascadeId = parsed.payload?.cascadeId || parsed.cascadeId;
+            const convoId = parsed.payload?.conversationId || parsed.conversationId;
+            if (convoId || cascadeId) {
+                activeModelsMap.set('latestConvoId', convoId || cascadeId);
+            }
 
-        const rawResponse = formatRawHttpResponse(101, 'Switching Protocols', upstreamRes.headers);
-        clientSocket.write(rawResponse);
-        if (upstreamHead && upstreamHead.length > 0) clientSocket.write(upstreamHead);
-        if (head && head.length > 0) upstreamSocket.write(head);
+            const matches = matchCustomPlaceholders(text);
+            if (matches.length > 0) {
+                if (modelsManager) {
+                    for (const placeholder of matches) {
+                        const modelConfig = modelsManager.getModelByPlaceholder(placeholder);
+                        if (modelConfig) {
+                            if (cascadeId) setTrackedModel(cascadeId, modelConfig, activeModelsMap);
+                            if (convoId) setTrackedModel(convoId, modelConfig, activeModelsMap);
+                            if (convoId || cascadeId) activeModelsMap.set('latestConvoId', convoId || cascadeId);
+                            setTrackedModel('latest', modelConfig, activeModelsMap);
+                        }
+                    }
+                }
 
-        upstreamSocket.pipe(clientSocket);
-        clientSocket.pipe(upstreamSocket);
+                // Native placeholder preservation: agy accepts M500..M649 via fetchAvailableModels interception
+                return message;
+            } else {
+                // Only remove from active models if the message explicitly specifies a standard model
+                const explicitModel = parsed.payload?.cascadeConfig?.plannerConfig?.planModel ||
+                                      parsed.payload?.model ||
+                                      parsed.model;
 
-        const cleanup = () => {
-            upstreamSocket.destroy();
-            clientSocket.destroy();
-        };
+                if (explicitModel && typeof explicitModel === 'string' && !CUSTOM_PLACEHOLDER_REGEX.test(explicitModel)) {
+                    const cascadeId = parsed.payload?.cascadeId || parsed.cascadeId;
+                    const convoId = parsed.payload?.conversationId || parsed.conversationId;
+                    if (cascadeId && activeModelsMap.has(cascadeId)) {
+                        activeModelsMap.delete(cascadeId);
+                    }
+                    if (convoId && activeModelsMap.has(convoId)) {
+                        activeModelsMap.delete(convoId);
+                    }
+                }
+            }
+        }
+    } catch (e) {}
 
-        upstreamSocket.on('error', cleanup);
-        clientSocket.on('error', cleanup);
-        upstreamSocket.on('close', cleanup);
-        clientSocket.on('close', cleanup);
-        upstreamSocket.on('end', () => clientSocket.end());
-        clientSocket.on('end', () => upstreamSocket.end());
-    });
+    return message;
+}
 
-    upstreamReq.on('response', (upstreamRes) => {
-        clientSocket.removeListener('error', earlyClientErrorHandler);
-        clientSocket.removeListener('close', earlyClientErrorHandler);
-        const rawResponse = formatRawHttpResponse(upstreamRes.statusCode, upstreamRes.statusMessage || '', upstreamRes.headers);
-        clientSocket.write(rawResponse);
-        upstreamRes.pipe(clientSocket);
-    });
+/**
+ * Inspects incoming upstream messages on /connect-websocket and injects custom models on model RPCs.
+ */
+function handleWebSocketUpstreamMessage(ws, event, modelsManager) {
+    let dataToSend = event.data;
+    if (!ws.data || !ws.data.activeStreams || ws.data.activeStreams.size === 0) {
+        return dataToSend;
+    }
 
-    upstreamReq.on('error', (err) => {
-        clientSocket.removeListener('error', earlyClientErrorHandler);
-        clientSocket.removeListener('close', earlyClientErrorHandler);
-        console.error('[WebSocket Upgrade Error]', err.message);
-        clientSocket.destroy();
-    });
+    let isJsonCandidate = false;
+    let text = null;
 
-    upstreamReq.end();
+    if (typeof event.data === 'string') {
+        if (event.data.startsWith('{')) {
+            isJsonCandidate = true;
+            text = event.data;
+        }
+    } else if (event.data && typeof event.data === 'object') {
+        const u8 = new Uint8Array(event.data);
+        if (u8.length > 0 && u8[0] === 0x7b /* '{' */) {
+            isJsonCandidate = true;
+            text = Buffer.from(event.data).toString('utf8');
+        }
+    }
+
+    if (!isJsonCandidate || !text) return dataToSend;
+
+    try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === 'object') {
+            if (parsed.type === 'data' && parsed.streamId && ws.data.activeStreams.has(parsed.streamId)) {
+                const procedure = ws.data.activeStreams.get(parsed.streamId);
+                if (isModelProcedure(procedure) && modelsManager && typeof modelsManager.hasEnabledModels === 'function' && modelsManager.hasEnabledModels()) {
+                    if (parsed.payload) {
+                        injectCustomModels(parsed.payload, modelsManager);
+                        dataToSend = JSON.stringify(parsed);
+                    }
+                }
+            } else if (parsed.type === 'end' && parsed.streamId) {
+                ws.data.activeStreams.delete(parsed.streamId);
+            }
+        }
+    } catch (e) {}
+
+    return dataToSend;
+}
+
+/**
+ * Injects custom models from ModelsManager into a Connect-RPC response data payload in-place.
+ * Supports GetUserStatus, GetCascadeModelConfigData, and GetCascadeModelConfigs schemas.
+ * Returns the mutated data payload.
+ */
+function injectCustomModels(data, modelsManager) {
+    if (!data || typeof data !== 'object' || !modelsManager) return data;
+    if (typeof modelsManager.getInjectedModels !== 'function') return data;
+
+    let targetConfigData = data;
+    if (data.userStatus) {
+        data.userStatus.cascadeModelConfigData = data.userStatus.cascadeModelConfigData || {};
+        targetConfigData = data.userStatus.cascadeModelConfigData;
+    } else if (data.cascadeModelConfigData) {
+        targetConfigData = data.cascadeModelConfigData;
+    }
+
+    targetConfigData.clientModelConfigs = targetConfigData.clientModelConfigs || [];
+
+    const existingEnums = new Set();
+    for (const existing of targetConfigData.clientModelConfigs) {
+        if (existing.modelOrAlias?.model) {
+            existingEnums.add(existing.modelOrAlias.model);
+        }
+    }
+
+    const injected = modelsManager.getInjectedModels(existingEnums);
+    if (!injected || injected.length === 0) return data;
+
+    for (const m of injected) {
+        const existing = targetConfigData.clientModelConfigs.find(item =>
+            (item.modelId && item.modelId === m.modelId) ||
+            (item.modelOrAlias?.model && item.modelOrAlias.model === m.modelOrAlias?.model)
+        );
+        if (!existing) {
+            targetConfigData.clientModelConfigs.push(m);
+        } else {
+            existing.supportsImages = m.supportsImages;
+            existing.supportedMimeTypes = m.supportedMimeTypes;
+            if (m.tagTitle) existing.tagTitle = m.tagTitle;
+            if (m.tagDescription) existing.tagDescription = m.tagDescription;
+        }
+    }
+
+    if (Array.isArray(targetConfigData.clientModelSorts) && targetConfigData.clientModelSorts.length > 0) {
+        const recommendedSort = targetConfigData.clientModelSorts.find(s =>
+            s.name && s.name.toLowerCase() === 'recommended'
+        ) || targetConfigData.clientModelSorts[0];
+
+        const group = recommendedSort.groups?.[0];
+        if (group && Array.isArray(group.modelLabels)) {
+            for (const m of injected) {
+                if (!group.modelLabels.includes(m.label)) {
+                    group.modelLabels.push(m.label);
+                }
+            }
+        }
+    }
+
+    return data;
 }
 
 module.exports = {
-    proxyToTerminal,
-    proxyToIde,
     isSpaRoute,
-    proxyToUpstream,
-    handleWebSocketUpgrade,
+    isModelProcedure,
+    handleWebSocketClientMessage,
+    handleWebSocketUpstreamMessage,
+    proxyWebRequest,
+    replaceFaviconInHtml,
+    injectCustomModels,
+    activeConversationModels
 };

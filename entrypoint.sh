@@ -105,6 +105,16 @@ if [ ! -f "$GEMINI_DIR/config/config.json" ]; then
 EOF
 fi
 
+# Initialize custom_models.json if not present
+if [ ! -f "$GEMINI_DIR/config/custom_models.json" ]; then
+    cat <<EOF > "$GEMINI_DIR/config/custom_models.json"
+{
+  "enabled": false,
+  "providers": []
+}
+EOF
+fi
+
 # Initialize Vercel & Agent Customizations (Skills, Rules, MCP config)
 CUSTOMIZATIONS_SRC="/usr/local/share/antigravity/customizations"
 [ ! -d "$CUSTOMIZATIONS_SRC" ] && CUSTOMIZATIONS_SRC="/workspace/antigravity-docker/customizations"
@@ -121,7 +131,7 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
                 sname="$(basename "$s")"
                 if [ ! -d "$GEMINI_DIR/config/skills/$sname" ]; then
                     cp -r "$s" "$GEMINI_DIR/config/skills/"
-                    echo " [Customizations] Installed Vercel skill: '$sname'"
+                    echo " [Customizations] Installed skill: '$sname'"
                 fi
             fi
         done
@@ -134,7 +144,7 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
                 rname="$(basename "$r")"
                 if [ ! -f "$GEMINI_DIR/config/rules/$rname" ]; then
                     cp "$r" "$GEMINI_DIR/config/rules/"
-                    echo " [Customizations] Installed Vercel rule: '$rname'"
+                    echo " [Customizations] Installed rule: '$rname'"
                 fi
             fi
         done
@@ -145,10 +155,10 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
     if [ ! -f "$MCP_TARGET" ]; then
         if [ -f "$CUSTOMIZATIONS_SRC/mcp_config.json" ]; then
             cp "$CUSTOMIZATIONS_SRC/mcp_config.json" "$MCP_TARGET"
-            echo " [Customizations] Initialized mcp_config.json with Vercel & Expo MCP servers"
+            echo " [Customizations] Initialized mcp_config.json with MCP servers"
         fi
     else
-        # Merge vercel and expo MCP servers into existing mcp_config.json if not present
+        # Merge vercel, expo, dokploy, browserless MCP servers into existing mcp_config.json if not present
         node -e '
         const fs = require("fs");
         const targetPath = process.argv[1];
@@ -202,7 +212,7 @@ fi
 # only if user projects have not already been configured
 EXISTING_PROJECTS=$(find "$GEMINI_DIR/config/projects" -maxdepth 1 -name "*.json" ! -name "outside-of-project.json" ! -name ".json" 2>/dev/null | head -n 1)
 if [ -z "$EXISTING_PROJECTS" ]; then
-    node -e '
+    bun -e '
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -587,6 +597,40 @@ case "$1" in
 
         export AGY_PORT="${TARGET_PORT}"
         export AGY_HUB_PORT="${AGY_HUB_PORT}"
+        export TRANSLATION_PORT="${TRANSLATION_PORT:-4405}"
+
+        # Conditionally enable translation proxy ONLY if custom models are configured.
+        # This ensures agy talks directly to Google CloudCode when no custom models are
+        # active, so a proxy failure cannot break normal operation.
+        HAS_CUSTOM_MODELS="false"
+        if [ -f "$GEMINI_DIR/config/custom_models.json" ]; then
+            HAS_CUSTOM_MODELS="$(bun -e '
+                const fs = require("fs");
+                try {
+                    const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                    const has = Boolean(cfg.enabled && Array.isArray(cfg.providers) && cfg.providers.some(p => p.enabled && Array.isArray(p.models) && p.models.some(m => m.enabled)));
+                    console.log(has ? "true" : "false");
+                } catch (e) {
+                    console.log("false");
+                }
+            ' "$GEMINI_DIR/config/custom_models.json" 2>/dev/null || echo "false")"
+        fi
+
+        if [ "$HAS_CUSTOM_MODELS" = "true" ] || [ "${ENABLE_TRANSLATION_PROXY:-false}" = "true" ]; then
+            echo " 🧠 Custom Models detected: routing inference via translation proxy on port ${TRANSLATION_PORT}"
+            export CLOUDCODE_UPSTREAM_URL="${CLOUDCODE_UPSTREAM_URL:-https://daily-cloudcode-pa.googleapis.com}"
+            export CLOUD_CODE_URL="${CLOUD_CODE_URL:-http://127.0.0.1:${TRANSLATION_PORT}}"
+            export ENABLE_TRANSLATION_PROXY="true"
+        elif [ -n "${CLOUD_CODE_URL:-}" ]; then
+            echo " 🧠 Custom CLOUD_CODE_URL specified: ${CLOUD_CODE_URL}"
+            export CLOUDCODE_UPSTREAM_URL="${CLOUDCODE_UPSTREAM_URL:-$CLOUD_CODE_URL}"
+            export CLOUD_CODE_URL="http://127.0.0.1:${TRANSLATION_PORT}"
+            export ENABLE_TRANSLATION_PROXY="true"
+        else
+            echo " ⚪ Custom Models disabled or not configured: standard Google CloudCode active"
+            unset CLOUD_CODE_URL
+            export ENABLE_TRANSLATION_PROXY="false"
+        fi
         export AUTH_PASSWORD="${AUTH_PASSWORD:-}"
         export BLOCK_TELEMETRY="${BLOCK_TELEMETRY}"
         export ENABLE_IDE="${ENABLE_IDE}"
@@ -597,7 +641,17 @@ case "$1" in
         export HOST_SSH_DIR="${HOST_SSH_DIR:-}"
         export TRUST_PROXY="${TRUST_PROXY:-false}"
         export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}"
-        gosu "$DEVELOPER_USER" node /usr/local/bin/auth-proxy.js &
+        PROXY_SCRIPT="/usr/local/bin/auth-proxy.js"
+        if [ "${DEV_MODE:-false}" = "true" ] || [ "${AGY_DEV_PROXY:-false}" = "true" ] || [ -f "/workspace/antigravity-docker/proxy/lib/proxy.js" ]; then
+            if [ -f "/workspace/antigravity-docker/proxy/auth-proxy.js" ]; then
+                PROXY_SCRIPT="/workspace/antigravity-docker/proxy/auth-proxy.js"
+                echo " 🔧 Using local auth-proxy override: $PROXY_SCRIPT"
+            elif [ -f "/workspace/proxy/auth-proxy.js" ] && [ -f "/workspace/proxy/lib/proxy.js" ]; then
+                PROXY_SCRIPT="/workspace/proxy/auth-proxy.js"
+                echo " 🔧 Using local auth-proxy override: $PROXY_SCRIPT"
+            fi
+        fi
+        gosu "$DEVELOPER_USER" bun "$PROXY_SCRIPT" &
 
         if [ ! -s "$TOKEN_FILE" ] && [ ! -s "$GEMINI_DIR/jetski-standalone-oauth-token" ]; then
             echo "==================================================================="

@@ -1,0 +1,867 @@
+#!/usr/bin/env bun
+'use strict';
+
+const fs = require('node:fs');
+const http = require('node:http');
+const https = require('node:https');
+const path = require('node:path');
+const {
+    callAnthropicStream,
+    callOpenAIStream,
+    geminiContentsToAnthropic,
+    geminiToolsToAnthropic,
+    geminiContentsToOpenAI,
+    geminiToolsToOpenAI,
+    sanitizeToolCallArgs,
+    resolveConversationToolOutputs,
+    EMPTY_COMPLETION_FALLBACK_TEXT
+} = require('./lib/transcoder.js');
+const {
+    CUSTOM_PLACEHOLDER_REGEX,
+    THINKING_BUDGETS,
+    DEFAULT_SUPPORTED_MIME_TYPES,
+    TEXT_ONLY_SUPPORTED_MIME_TYPES
+} = require('./lib/models-manager.js');
+
+const DEFAULT_PORT = parseInt(process.env.TRANSLATION_PORT || '4405', 10);
+const DEFAULT_UPSTREAM = process.env.CLOUDCODE_UPSTREAM_URL || 'https://daily-cloudcode-pa.googleapis.com';
+
+const HOP_BY_HOP_HEADERS = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'transfer-encoding',
+    'upgrade'
+]);
+
+function filterHeaders(headers) {
+    const out = {};
+    for (const [key, value] of Object.entries(headers)) {
+        if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase()) && !key.startsWith(':')) {
+            out[key] = value;
+        }
+    }
+    return out;
+}
+
+function isStreamGenerateContent(url) {
+    if (!url) return false;
+    return url.includes(':streamGenerateContent') || url.includes('/streamGenerateContent');
+}
+
+function isGenerateContent(url) {
+    if (!url) return false;
+    return (url.includes(':generateContent') || url.includes('/generateContent')) && !isStreamGenerateContent(url);
+}
+
+/**
+ * Checks whether an incoming HTTP request is targeting the fetchAvailableModels endpoint.
+ */
+function isFetchAvailableModels(url) {
+    if (!url) return false;
+    return url.includes('fetchAvailableModels');
+}
+
+/**
+ * Injects custom models configured in modelsManager into the fetchAvailableModels JSON response.
+ */
+function injectAvailableModels(data, modelsManager) {
+    if (!data || typeof data !== 'object') return data;
+    if (!modelsManager) return data;
+
+    const injected = modelsManager.getInjectedModels();
+    if (!injected || injected.length === 0) return data;
+
+    data.models = data.models || {};
+
+    for (const m of injected) {
+        const placeholderEnum = m.modelOrAlias?.model;
+        if (!placeholderEnum) continue;
+
+        const budget = m.supportsThinking
+            ? (m.thinkingBudget || (THINKING_BUDGETS && THINKING_BUDGETS[m.thinkingLevel]) || 2048)
+            : 2048;
+
+        const supportsImages = m.supportsImages !== false;
+        const supportedMimeTypes = m.supportedMimeTypes || (supportsImages ? DEFAULT_SUPPORTED_MIME_TYPES : TEXT_ONLY_SUPPORTED_MIME_TYPES);
+
+        data.models[placeholderEnum] = {
+            displayName: m.label,
+            supportsImages: Boolean(supportsImages),
+            supportsThinking: Boolean(m.supportsThinking),
+            thinkingBudget: budget,
+            minThinkingBudget: 1024,
+            recommended: true,
+            maxTokens: 128000,
+            maxOutputTokens: 8192,
+            model: placeholderEnum,
+            quotaInfo: {
+                remainingFraction: 1.0
+            },
+            supportedMimeTypes,
+            ...(m.tagTitle ? { tagTitle: m.tagTitle } : {}),
+            ...(m.tagDescription ? { tagDescription: m.tagDescription } : {})
+        };
+    }
+
+    if (!Array.isArray(data.agentModelSorts) || data.agentModelSorts.length === 0) {
+        data.agentModelSorts = [{ groups: [{ modelIds: [] }] }];
+    }
+    const sort = data.agentModelSorts[0];
+    if (!Array.isArray(sort.groups) || sort.groups.length === 0) {
+        sort.groups = [{ modelIds: [] }];
+    }
+    const group = sort.groups[0];
+    group.modelIds = group.modelIds || [];
+    for (const m of injected) {
+        const placeholderEnum = m.modelOrAlias?.model;
+        if (placeholderEnum && !group.modelIds.includes(placeholderEnum)) {
+            group.modelIds.push(placeholderEnum);
+        }
+    }
+
+    return data;
+}
+
+function normalizeFinishReason(reason) {
+    if (!reason) return 'STOP';
+    const lower = String(reason).toLowerCase();
+    if (lower === 'stop' || lower === 'end_turn' || lower === 'tool_use' || lower === 'tool_calls') {
+        return 'STOP';
+    }
+    if (lower === 'length' || lower === 'max_tokens') {
+        return 'MAX_TOKENS';
+    }
+    return String(reason).toUpperCase();
+}
+
+class TranslationProxy {
+    constructor(options = {}) {
+        this.port = options.port || DEFAULT_PORT;
+        this.upstreamUrl = options.upstreamUrl || DEFAULT_UPSTREAM;
+        this.modelsManager = options.modelsManager || null;
+        this.activeConversationModels = options.activeConversationModels || new Map();
+        this.baseDir = options.baseDir || path.join(process.env.HOME || '/home/developer', '.gemini/antigravity-cli');
+        this.server = null;
+        this.isRunning = false;
+    }
+
+    start() {
+        return new Promise((resolve, reject) => {
+            if (this.isRunning) return resolve(this.server);
+
+            this.server = http.createServer((req, res) => {
+                this.handleRequest(req, res);
+            });
+
+            this.server.on('error', (err) => {
+                console.error('[Translation Proxy] Server error:', err.message);
+                if (!this.isRunning) reject(err);
+            });
+
+            this.server.listen(this.port, '127.0.0.1', () => {
+                this.isRunning = true;
+                console.log(`[Translation Proxy] 🚀 Listening on 127.0.0.1:${this.port} (Upstream: ${this.upstreamUrl})`);
+                resolve(this.server);
+            });
+        });
+    }
+
+    stop() {
+        return new Promise((resolve) => {
+            if (!this.server || !this.isRunning) return resolve();
+            this.server.close(() => {
+                this.isRunning = false;
+                console.log('[Translation Proxy] ⏹️  Stopped');
+                resolve();
+            });
+        });
+    }
+
+    handleRequest(req, res) {
+        const parsedUrl = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+
+        // Health check endpoint
+        if (parsedUrl.pathname === '/__proxy/health') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                status: 'ok',
+                port: this.port,
+                upstream: this.upstreamUrl,
+                timestamp: new Date().toISOString()
+            }));
+            return;
+        }
+
+        // Intercept Gemini fetchAvailableModels requests
+        if (isFetchAvailableModels(parsedUrl.pathname) && req.method === 'POST') {
+            this.handleFetchAvailableModels(req, res);
+            return;
+        }
+
+        // Intercept Gemini streamGenerateContent requests
+        if (isStreamGenerateContent(parsedUrl.pathname) && req.method === 'POST') {
+            this.handleStreamGenerateContent(req, res);
+            return;
+        }
+
+        // Intercept Gemini unary generateContent requests
+        if (isGenerateContent(parsedUrl.pathname) && req.method === 'POST') {
+            this.handleGenerateContent(req, res);
+            return;
+        }
+
+        // Standard pass-through reverse proxy
+        this.forwardPassThrough(req, res);
+    }
+
+    resolveCustomModel(parsedData) {
+        const rawModelStr = parsedData?.model || parsedData?.request?.model;
+        const modelStr = typeof rawModelStr === 'string' ? rawModelStr.replace(/^.*models\//, '') : '';
+
+        // 1. Direct model lookup by placeholder or ID if modelsManager is present
+        if (modelStr && this.modelsManager && typeof this.modelsManager.getModelByPlaceholder === 'function') {
+            const custom = this.modelsManager.getModelByPlaceholder(modelStr);
+            if (custom) return custom;
+            // Placeholder is in the custom range but not registered as a custom model.
+            // This is a built-in Antigravity model — pass through to Google upstream.
+            if (CUSTOM_PLACEHOLDER_REGEX.test(modelStr)) return null;
+        }
+
+        // 2. Explicit standard model guard: if an explicit non-custom model is requested, pass through directly
+        if (typeof modelStr === 'string' && modelStr.length > 0 && !CUSTOM_PLACEHOLDER_REGEX.test(modelStr) && !modelStr.startsWith('custom-')) {
+            return null;
+        }
+
+        if (!this.activeConversationModels || this.activeConversationModels.size === 0) {
+            return null;
+        }
+
+        const cascadeId = parsedData?.cascadeId || parsedData?.request?.cascadeId;
+        if (cascadeId && this.activeConversationModels.has(cascadeId)) {
+            return this.activeConversationModels.get(cascadeId);
+        }
+
+        const convoId = parsedData?.conversationId || parsedData?.request?.conversationId || parsedData?.request?.sessionId;
+        if (convoId && this.activeConversationModels.has(convoId)) {
+            return this.activeConversationModels.get(convoId);
+        }
+
+        if (this.activeConversationModels.has('latest')) {
+            return this.activeConversationModels.get('latest');
+        }
+
+        return null;
+    }
+
+    _resolveToolOutputs(parsedData, contents, systemInstruction) {
+        let cascadeId = parsedData?.cascadeId || parsedData?.request?.cascadeId;
+        let convoId = parsedData?.conversationId || parsedData?.request?.conversationId;
+        if (!convoId && parsedData?.request?.sessionId && typeof parsedData.request.sessionId === 'string' && fs.existsSync(path.join(this.baseDir, 'brain', parsedData.request.sessionId))) {
+            convoId = parsedData.request.sessionId;
+        }
+
+        // Try extracting conversation ID from systemInstruction or contents if not explicitly given
+        if (!convoId && !cascadeId) {
+            const extractFromText = (str) => {
+                if (!str || typeof str !== 'string') return null;
+                const mConvo = str.match(/Conversation ID:\s*([0-9a-fA-F-]{36})/i);
+                if (mConvo) return mConvo[1];
+                const mBrain = str.match(/(?:brain|conversations)\/([0-9a-fA-F-]{36})/i);
+                if (mBrain) return mBrain[1];
+                return null;
+            };
+
+            if (typeof systemInstruction === 'string') {
+                convoId = extractFromText(systemInstruction);
+            } else if (Array.isArray(systemInstruction?.parts)) {
+                for (const p of systemInstruction.parts) {
+                    convoId = extractFromText(p?.text);
+                    if (convoId) break;
+                }
+            }
+
+            if (!convoId && Array.isArray(contents)) {
+                for (const item of contents) {
+                    if (Array.isArray(item?.parts)) {
+                        for (const p of item.parts) {
+                            convoId = extractFromText(p?.text);
+                            if (convoId) break;
+                        }
+                    }
+                    if (convoId) break;
+                }
+            }
+
+            // Verify that extracted convoId actually exists on disk
+            if (convoId && !fs.existsSync(path.join(this.baseDir, 'brain', convoId))) {
+                convoId = null;
+            }
+        }
+
+        const candidateIds = [];
+        if (this.activeConversationModels) {
+            const latestConvo = this.activeConversationModels.get('latestConvoId');
+            if (latestConvo) candidateIds.push(latestConvo);
+            for (const k of this.activeConversationModels.keys()) {
+                if (k !== 'latest' && k !== 'latestConvoId' && typeof k === 'string' && !candidateIds.includes(k)) {
+                    candidateIds.push(k);
+                }
+            }
+        }
+
+        const callIds = [];
+        if (Array.isArray(contents)) {
+            for (const item of contents) {
+                if (!Array.isArray(item?.parts)) continue;
+                for (const p of item.parts) {
+                    const call = p?.functionCall || p?.function_call;
+                    const resp = p?.functionResponse || p?.function_response;
+                    const cid = call?.id || call?.call_id || call?.callId || resp?.id || resp?.call_id || resp?.callId || p?.id || p?.call_id || p?.callId;
+                    if (cid && typeof cid === 'string' && (cid.startsWith('call_') || cid.startsWith('toolu_')) && !callIds.includes(cid)) {
+                        callIds.push(cid);
+                    }
+                }
+            }
+        }
+
+        return resolveConversationToolOutputs(convoId, cascadeId, this.baseDir, { candidateIds, callIds });
+    }
+
+    handleStreamGenerateContent(req, res) {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('error', (err) => {
+            console.error('[Translation Proxy] Request error:', err.message);
+            if (!res.headersSent && !res.writableEnded) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+        req.on('end', async () => {
+            const rawBody = Buffer.concat(chunks);
+            let parsedData = null;
+            try {
+                parsedData = JSON.parse(rawBody.toString('utf8'));
+            } catch (e) {}
+
+            const customModel = this.resolveCustomModel(parsedData);
+            if (!customModel) {
+                // Pass through directly to upstream Google CloudCode
+                this.forwardPassThrough(req, res, rawBody);
+                return;
+            }
+
+            try {
+                await this.translateAndStream(parsedData, customModel, res);
+            } catch (err) {
+                console.error('[Translation Proxy] Translation error:', err.message);
+                if (!res.headersSent) {
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache',
+                        'Connection': 'keep-alive'
+                    });
+                }
+                const errorText = `\n\n**Error connecting to custom model provider (${customModel.providerType}):**\n\`\`\`\n${err.message}\n\`\`\`\nPlease check your provider configuration in \`/models\`.`;
+                const errChunk = {
+                    response: {
+                        candidates: [{
+                            content: {
+                                role: 'model',
+                                parts: [{ text: errorText }]
+                            },
+                            finishReason: 'STOP'
+                        }]
+                    }
+                };
+                res.write(`data: ${JSON.stringify(errChunk)}\n\n`);
+                res.end();
+            }
+        });
+    }
+
+    async translateAndStream(parsedData, customModel, res) {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        });
+
+        const abortController = new AbortController();
+        const onClose = () => {
+            abortController.abort();
+        };
+        res.on('close', onClose);
+
+        const requestObj = parsedData.request || parsedData;
+        const contents = requestObj.contents || [];
+        const systemInstruction = requestObj.systemInstruction;
+        const tools = requestObj.tools;
+        const generationConfig = requestObj.generationConfig || {};
+        const maxTokens = generationConfig.maxOutputTokens || 4096;
+
+        let hasEmittedContent = false;
+
+        const onEvent = (ev) => {
+            if (res.writableEnded || res.destroyed) return;
+
+            if (ev.type === 'thought') {
+                const chunk = {
+                    response: {
+                        candidates: [{
+                            content: {
+                                role: 'model',
+                                parts: [{ text: ev.text, thought: true }]
+                            }
+                        }]
+                    }
+                };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            } else if (ev.type === 'text') {
+                hasEmittedContent = true;
+                const chunk = {
+                    response: {
+                        candidates: [{
+                            content: {
+                                role: 'model',
+                                parts: [{ text: ev.text }]
+                            }
+                        }]
+                    }
+                };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            } else if (ev.type === 'tool_call') {
+                hasEmittedContent = true;
+                let argsObj = {};
+                try {
+                    argsObj = typeof ev.arguments === 'string' ? JSON.parse(ev.arguments) : (ev.arguments || {});
+                } catch (e) {
+                    argsObj = { raw: ev.arguments };
+                }
+                const fnCall = { name: ev.name, args: sanitizeToolCallArgs(ev.name, argsObj) };
+                if (ev.id) fnCall.id = ev.id;
+                const chunk = {
+                    response: {
+                        candidates: [{
+                            content: {
+                                role: 'model',
+                                parts: [{ functionCall: fnCall }]
+                            }
+                        }]
+                    }
+                };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            } else if (ev.type === 'done') {
+                const finishReason = normalizeFinishReason(ev.finishReason || ev.stopReason);
+                const parts = [];
+                if (!hasEmittedContent) {
+                    parts.push({ text: EMPTY_COMPLETION_FALLBACK_TEXT });
+                    hasEmittedContent = true;
+                }
+                const chunk = {
+                    response: {
+                        candidates: [{
+                            content: {
+                                role: 'model',
+                                parts
+                            },
+                            finishReason
+                        }]
+                    }
+                };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            }
+        };
+
+        const toolOutputs = this._resolveToolOutputs(parsedData, contents, systemInstruction);
+
+        try {
+            await this._callProviderStream({
+                customModel,
+                contents,
+                systemInstruction,
+                tools,
+                maxTokens,
+                signal: abortController.signal,
+                onEvent,
+                toolOutputs
+            });
+        } finally {
+            res.removeListener('close', onClose);
+        }
+
+        if (!res.writableEnded && !res.destroyed) {
+            res.end();
+        }
+    }
+
+    async _callProviderStream({ customModel, contents, systemInstruction, tools, maxTokens, signal, onEvent, toolOutputs }) {
+        if (customModel.providerType === 'anthropic') {
+            const { system, messages } = geminiContentsToAnthropic(contents, systemInstruction, { toolOutputs });
+            const anthropicTools = geminiToolsToAnthropic(tools);
+
+            await callAnthropicStream({
+                endpoint: customModel.endpoint,
+                apiKey: customModel.apiKey,
+                model: customModel.rawModelId,
+                messages,
+                system,
+                tools: anthropicTools,
+                supportsThinking: Boolean(customModel.supportsThinking),
+                thinkingLevel: customModel.thinkingLevel,
+                thinkingBudget: customModel.thinkingBudget,
+                maxTokens,
+                signal,
+                onEvent,
+                timeout: customModel.timeout
+            });
+        } else {
+            // OpenAI or Ollama-compatible
+            const messages = geminiContentsToOpenAI(contents, systemInstruction, { toolOutputs });
+            const openAiTools = geminiToolsToOpenAI(tools);
+
+            await callOpenAIStream({
+                endpoint: customModel.endpoint,
+                apiKey: customModel.apiKey,
+                model: customModel.rawModelId,
+                messages,
+                tools: openAiTools,
+                supportsThinking: Boolean(customModel.supportsThinking),
+                thinkingLevel: customModel.thinkingLevel,
+                maxTokens,
+                signal,
+                onEvent,
+                timeout: customModel.timeout
+            });
+        }
+    }
+
+    handleGenerateContent(req, res) {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('error', (err) => {
+            console.error('[Translation Proxy] Request error in generateContent:', err.message);
+            if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+        req.on('end', async () => {
+            const rawBody = Buffer.concat(chunks);
+            let parsedData = null;
+            try {
+                parsedData = JSON.parse(rawBody.toString('utf8'));
+            } catch (e) {}
+
+            const customModel = this.resolveCustomModel(parsedData);
+            if (!customModel) {
+                // Pass through directly to upstream Google CloudCode
+                this.forwardPassThrough(req, res, rawBody);
+                return;
+            }
+
+            try {
+                await this.translateAndGenerate(parsedData, customModel, res);
+            } catch (err) {
+                console.error('[Translation Proxy] Translation error in generateContent:', err.message);
+                if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+                    const errorText = `\n\n**Error connecting to custom model provider (${customModel.providerType}):**\n\`\`\`\n${err.message}\n\`\`\`\nPlease check your provider configuration in \`/models\`.`;
+                    const errCandidate = {
+                        content: {
+                            role: 'model',
+                            parts: [{ text: errorText }]
+                        },
+                        finishReason: 'STOP'
+                    };
+                    const errResponse = {
+                        candidates: [errCandidate],
+                        response: {
+                            candidates: [errCandidate]
+                        },
+                        usageMetadata: {
+                            promptTokenCount: 0,
+                            candidatesTokenCount: 0,
+                            totalTokenCount: 0
+                        }
+                    };
+                    const bodyStr = JSON.stringify(errResponse);
+                    res.writeHead(200, {
+                        'Content-Type': 'application/json; charset=utf-8',
+                        'Content-Length': Buffer.byteLength(bodyStr)
+                    });
+                    res.end(bodyStr);
+                }
+            }
+        });
+    }
+
+    async translateAndGenerate(parsedData, customModel, res) {
+        const abortController = new AbortController();
+        const onClose = () => {
+            abortController.abort();
+        };
+        res.on('close', onClose);
+
+        const requestObj = parsedData.request || parsedData;
+        const contents = requestObj.contents || [];
+        const systemInstruction = requestObj.systemInstruction;
+        const tools = requestObj.tools;
+        const generationConfig = requestObj.generationConfig || {};
+        const maxTokens = generationConfig.maxOutputTokens || 4096;
+
+        let accumulatedText = '';
+        let accumulatedThought = '';
+        const toolCalls = [];
+        let finishReason = 'STOP';
+
+        const onEvent = (ev) => {
+            if (ev.type === 'thought') {
+                accumulatedThought += ev.text || '';
+            } else if (ev.type === 'text') {
+                accumulatedText += ev.text || '';
+            } else if (ev.type === 'tool_call') {
+                let argsObj = {};
+                try {
+                    argsObj = typeof ev.arguments === 'string' ? JSON.parse(ev.arguments) : (ev.arguments || {});
+                } catch (e) {
+                    argsObj = { raw: ev.arguments };
+                }
+                const fnCall = { name: ev.name, args: sanitizeToolCallArgs(ev.name, argsObj) };
+                if (ev.id) fnCall.id = ev.id;
+                toolCalls.push(fnCall);
+            } else if (ev.type === 'done') {
+                finishReason = normalizeFinishReason(ev.finishReason || ev.stopReason);
+            }
+        };
+
+        const toolOutputs = this._resolveToolOutputs(parsedData, contents, systemInstruction);
+
+        try {
+            await this._callProviderStream({
+                customModel,
+                contents,
+                systemInstruction,
+                tools,
+                maxTokens,
+                signal: abortController.signal,
+                onEvent,
+                toolOutputs
+            });
+
+            if (res.writableEnded || res.destroyed) return;
+
+            const parts = [];
+            if (accumulatedThought) {
+                parts.push({ text: accumulatedThought, thought: true });
+            }
+            if (accumulatedText) {
+                parts.push({ text: accumulatedText });
+            }
+            for (const tc of toolCalls) {
+                parts.push({ functionCall: tc });
+            }
+            if (!accumulatedText && toolCalls.length === 0) {
+                parts.push({ text: EMPTY_COMPLETION_FALLBACK_TEXT });
+            }
+
+            const candidate = {
+                content: {
+                    role: 'model',
+                    parts
+                },
+                finishReason
+            };
+
+            const responseObj = {
+                candidates: [candidate],
+                response: {
+                    candidates: [candidate]
+                },
+                usageMetadata: {
+                    promptTokenCount: 0,
+                    candidatesTokenCount: 0,
+                    totalTokenCount: 0
+                }
+            };
+
+            const bodyStr = JSON.stringify(responseObj);
+            res.writeHead(200, {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Content-Length': Buffer.byteLength(bodyStr)
+            });
+            res.end(bodyStr);
+        } finally {
+            res.removeListener('close', onClose);
+        }
+    }
+
+    handleFetchAvailableModels(req, res) {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('error', (err) => {
+            console.error('[Translation Proxy] Request error in fetchAvailableModels:', err.message);
+            if (!res.headersSent && !res.writableEnded) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: err.message }));
+            }
+        });
+        req.on('end', () => {
+            const rawBodyBuffer = Buffer.concat(chunks);
+            const parsedReq = new URL(req.url, 'http://127.0.0.1');
+            const targetUrl = new URL(parsedReq.pathname + parsedReq.search, this.upstreamUrl);
+            const isHttps = targetUrl.protocol === 'https:';
+            const client = isHttps ? https : http;
+
+            const headers = filterHeaders(req.headers);
+            headers['host'] = targetUrl.host;
+            headers['accept-encoding'] = 'identity';
+            headers['content-length'] = String(rawBodyBuffer.length);
+
+            const proxyReq = client.request(targetUrl, {
+                method: req.method,
+                headers,
+                timeout: 30000
+            }, (proxyRes) => {
+                proxyRes.on('error', (err) => {
+                    console.error('[Translation Proxy] Upstream response error in fetchAvailableModels:', err.message);
+                    proxyReq.destroy(err);
+                });
+
+                const upstreamChunks = [];
+                proxyRes.on('data', chunk => upstreamChunks.push(chunk));
+                proxyRes.on('end', () => {
+                    const upstreamBody = Buffer.concat(upstreamChunks).toString('utf8');
+                    let data = {};
+                    try {
+                        data = JSON.parse(upstreamBody);
+                    } catch (e) {
+                        const resHeaders = filterHeaders(proxyRes.headers);
+                        res.writeHead(proxyRes.statusCode, resHeaders);
+                        res.end(upstreamBody);
+                        return;
+                    }
+
+                    if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300 && this.modelsManager) {
+                        data = injectAvailableModels(data, this.modelsManager);
+                    }
+
+                    const modifiedBody = JSON.stringify(data);
+                    const resHeaders = filterHeaders(proxyRes.headers);
+                    delete resHeaders['content-encoding'];
+                    resHeaders['content-length'] = Buffer.byteLength(modifiedBody);
+                    resHeaders['content-type'] = 'application/json; charset=utf-8';
+                    res.writeHead(proxyRes.statusCode, resHeaders);
+                    res.end(modifiedBody);
+                });
+            });
+
+            res.on('close', () => {
+                if (!res.writableEnded && !proxyReq.destroyed) {
+                    proxyReq.destroy();
+                }
+            });
+
+            proxyReq.on('timeout', () => {
+                proxyReq.destroy(new Error('Gateway timeout after 30000ms'));
+            });
+
+            proxyReq.on('error', (err) => {
+                console.error('[Translation Proxy] Upstream fetchAvailableModels error:', err.message);
+                if (res.headersSent || res.writableEnded) {
+                    res.destroy();
+                    return;
+                }
+                // Offline fallback: return custom models if upstream is unreachable
+                let data = { models: {}, agentModelSorts: [{ groups: [{ modelIds: [] }] }] };
+                if (this.modelsManager) {
+                    data = injectAvailableModels(data, this.modelsManager);
+                }
+                const body = JSON.stringify(data);
+                res.writeHead(200, {
+                    'content-type': 'application/json; charset=utf-8',
+                    'content-length': Buffer.byteLength(body)
+                });
+                res.end(body);
+            });
+
+            proxyReq.write(rawBodyBuffer);
+            proxyReq.end();
+        });
+    }
+
+    forwardPassThrough(req, res, rawBodyBuffer = null) {
+        const parsedReq = new URL(req.url, 'http://127.0.0.1');
+        const targetUrl = new URL(parsedReq.pathname + parsedReq.search, this.upstreamUrl);
+        const isHttps = targetUrl.protocol === 'https:';
+        const client = isHttps ? https : http;
+
+        const headers = filterHeaders(req.headers);
+        headers['host'] = targetUrl.host;
+
+        if (rawBodyBuffer) {
+            headers['content-length'] = String(rawBodyBuffer.length);
+        }
+
+        const proxyReq = client.request(targetUrl, {
+            method: req.method,
+            headers,
+            timeout: 60000
+        }, (proxyRes) => {
+            const resHeaders = filterHeaders(proxyRes.headers);
+            res.writeHead(proxyRes.statusCode, resHeaders);
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('timeout', () => {
+            proxyReq.destroy(new Error('Gateway timeout after 60000ms'));
+        });
+
+        res.on('close', () => {
+            if (!res.writableEnded && !proxyReq.destroyed) {
+                proxyReq.destroy();
+            }
+        });
+
+        proxyReq.on('error', (err) => {
+            console.error('[Translation Proxy] Upstream error:', err.message);
+            if (!res.headersSent) {
+                res.writeHead(502, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                    error: 'Translation Proxy upstream error',
+                    details: err.message
+                }));
+            } else {
+                res.destroy();
+            }
+        });
+
+        if (rawBodyBuffer) {
+            proxyReq.write(rawBodyBuffer);
+            proxyReq.end();
+        } else {
+            req.pipe(proxyReq, { end: true });
+        }
+    }
+}
+
+if (require.main === module) {
+    const { defaultManager } = require('./lib/models-manager.js');
+    const proxy = new TranslationProxy({ modelsManager: defaultManager });
+    proxy.start().catch((err) => {
+        console.error('[Translation Proxy] Startup failed:', err);
+        process.exit(1);
+    });
+}
+
+module.exports = {
+    TranslationProxy,
+    DEFAULT_PORT,
+    DEFAULT_UPSTREAM,
+    isStreamGenerateContent,
+    isGenerateContent,
+    isFetchAvailableModels,
+    injectAvailableModels
+};

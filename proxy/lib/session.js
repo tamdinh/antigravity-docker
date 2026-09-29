@@ -1,4 +1,4 @@
-const { getAuthPassword, TRUST_PROXY } = require('./config');
+const { AUTH_PASSWORD, getAuthPassword, TRUST_PROXY } = require('./config');
 
 // In-Memory Session Store: Map<sessionToken, { createdAt: number, expiresAt: number }>
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -64,10 +64,9 @@ function recordFailedAttempt(ip) {
     }
 }
 
-// Parse cookies helper
-function parseCookies(req) {
+// Parse cookies from header string
+function parseCookiesFromHeader(cookieHeader) {
     const list = {};
-    const cookieHeader = req.headers.cookie;
     if (!cookieHeader) return list;
 
     cookieHeader.split(';').forEach(cookie => {
@@ -80,14 +79,15 @@ function parseCookies(req) {
     return list;
 }
 
-// Check if request is authenticated
-function isAuthenticated(req) {
-    const password = getAuthPassword();
-    if (!password) return true; // No password configured -> open access
-    const cookies = parseCookies(req);
-    const token = cookies['antigravity_session'];
-    if (!token) return false;
+// Parse cookies helper
+function parseCookies(req) {
+    return parseCookiesFromHeader(req.headers?.cookie);
+}
 
+// Check if token or session is valid
+function isTokenValid(token) {
+    if (!getAuthPassword()) return true;
+    if (!token) return false;
     const session = activeSessions.get(token);
     if (!session) return false;
     if (session.expiresAt <= Date.now()) {
@@ -95,6 +95,27 @@ function isAuthenticated(req) {
         return false;
     }
     return true;
+}
+
+// Check if request, context, or cookie header is authenticated
+function isAuthenticated(reqOrHeader) {
+    if (!getAuthPassword()) return true; // No password configured -> open access
+    if (!reqOrHeader) return false;
+
+    let cookieHeader = null;
+    if (typeof reqOrHeader === 'string') {
+        cookieHeader = reqOrHeader;
+    } else if (reqOrHeader.req && typeof reqOrHeader.req.header === 'function') {
+        cookieHeader = reqOrHeader.req.header('cookie');
+    } else if (reqOrHeader.headers) {
+        cookieHeader = typeof reqOrHeader.headers.get === 'function'
+            ? reqOrHeader.headers.get('cookie')
+            : reqOrHeader.headers.cookie;
+    }
+
+    const cookies = parseCookiesFromHeader(cookieHeader);
+    const token = cookies['antigravity_session'];
+    return isTokenValid(token);
 }
 
 module.exports = {
@@ -105,5 +126,6 @@ module.exports = {
     checkRateLimit,
     recordFailedAttempt,
     parseCookies,
+    parseCookiesFromHeader,
     isAuthenticated,
 };

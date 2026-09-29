@@ -4,8 +4,10 @@ Run Google Antigravity in **headless Remote Control mode** on your server.
 Connect to your agent from any browser via your reverse proxy or local network
 with built-in password protection, an integrated **Sidecar Manager** for
 scheduled agent prompts and autonomous workers, a **VS Code Web IDE** for
-inspecting project files, and a **Host Web Terminal** for running commands on
-the host machine.
+inspecting project files, a **Host Web Terminal** for running commands on
+the host machine, and **External Model Providers** for using Anthropic,
+OpenAI, or local Ollama directly in Antigravity. The web gateway is
+powered by **Bun** and **Hono** for ultra-fast startup and low memory usage.
 
 ---
 
@@ -93,6 +95,8 @@ volumes:
 | `BROWSERLESS_API_URL` | *(empty)* | *(Optional)* Custom or regional Browserless endpoint (e.g. `https://production-lon.browserless.io` or self-hosted). Defaults to US West (`https://production-sfo.browserless.io`). |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
+| `CUSTOM_MODEL_TIMEOUT_SECONDS` | `600` | Optional global timeout in seconds for external model completion requests (default: 10 minutes). |
+| `CUSTOM_MODEL_TIMEOUT_MS` | *(empty)* | Optional global timeout in milliseconds (overrides `CUSTOM_MODEL_TIMEOUT_SECONDS`). |
 
 ### Volumes
 
@@ -172,10 +176,48 @@ Once logged in, all services are accessible directly or via the **Draggable Floa
 | Service | Path | Description | Authentication |
 | :--- | :--- | :--- | :--- |
 | **Google Antigravity UI** | `/` | Main chat and conversation interface. Equipped with a **Draggable Floating Tools Dock** for launching workspace tools with auto-remembered screen placement. | Protected 🔒 |
+| **Custom Models** | `/models` | Web UI for configuring Anthropic, OpenAI, or local Ollama endpoints in Antigravity's model selector. | Protected 🔒 |
 | **Sidecar Manager** | `/sidecars` | Web UI for defining, scheduling, and monitoring background sidecars and recurring agent prompts. | Protected 🔒 |
 | **VS Code Web IDE** | `/ide/` | Full-featured VS Code in the browser for viewing and editing raw project files in `/workspace`. | Protected 🔒 |
 | **Web Terminal** | `/terminal/` | Web terminal running interactive container Bash sessions (`/workspace`) or SSH sessions to the host machine (configurable via `TERMINAL_MODE`). | Protected 🔒 |
 | **Health & Service Status** | `/status` | Real-time health check endpoint for monitoring service uptime. | **Public / Unauthenticated** 🟢 |
+
+---
+
+## 🧠 External Model Providers (Anthropic, OpenAI, Ollama)
+
+`antigravity-docker` includes native support for integrating external model
+providers directly into Antigravity's primary agent harness (terminal sandbox,
+file diff engine, live artifacts, and subagents).
+
+Access the configuration page by clicking **Custom Models** in the left
+navigation pane of the Antigravity UI or navigating directly to `/models`.
+
+### Supported Providers & Protocols:
+- **Anthropic Messages API**: Connect Anthropic models via your Anthropic
+  API key (`sk-ant-...`). Thinking blocks stream directly into
+  Antigravity's collapsible Thoughts drawer.
+- **OpenAI & OpenAI-Compatible Endpoints**: Connect official OpenAI models
+  or compatible self-hosted endpoints such as local Ollama, vLLM, or
+  DeepSeek.
+
+### Key Features:
+- **Dynamic Dropdown Injection**: Enabled external models are automatically
+  injected into Antigravity's model selector without DOM scraping or browser
+  extensions.
+- **Thinking Level Expansion**: Models configured with thinking capability
+  automatically expand into **Low**, **Medium**, and **High** thinking levels
+  in the UI model picker. Antigravity groups them under the base model name
+  with an interactive effort flyout, mapping the selection to Anthropic token
+  budgets or OpenAI reasoning effort.
+- **Transparent Reverse Proxy**: Standard Gemini models pass directly through
+  to Google CloudCode with zero translation overhead or latency penalty.
+- **Instant Fallback**: If an external provider key expires or rate limits,
+  switch to any standard Gemini model in the dropdown for immediate,
+  zero-downtime execution.
+- **Encrypted Local Persistence**: External endpoints and credentials are
+  persisted in `~/.gemini/config/custom_models.json` on the mounted volume.
+  API keys are securely masked in the web UI.
 
 ---
 

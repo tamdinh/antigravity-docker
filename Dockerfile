@@ -130,13 +130,17 @@ RUN if [ -d /usr/lib/code-server/src/browser/media ]; then \
         cp /usr/local/share/antigravity/assets/favicon.ico /usr/lib/code-server/lib/vscode/resources/server/favicon.ico 2>/dev/null || true; \
     fi
 
+COPY package.json /usr/local/bin/package.json
+COPY bun.lock /usr/local/bin/bun.lock
+RUN cd /usr/local/bin && bun install --production --frozen-lockfile
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY proxy/ /usr/local/bin/
 COPY scripts/host-terminal.sh /usr/local/bin/host-terminal.sh
 COPY scripts/set-password.sh /usr/local/bin/set-password
 COPY scripts/show-ssh-key.sh /usr/local/bin/show-ssh-key
 COPY scripts/browserless-mcp.sh /usr/local/bin/browserless-mcp
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/auth-proxy.js /usr/local/bin/sidecar-manager.js /usr/local/bin/host-terminal.sh /usr/local/bin/set-password /usr/local/bin/show-ssh-key /usr/local/bin/browserless-mcp && \
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/auth-proxy.js /usr/local/bin/sidecar-manager.js /usr/local/bin/translation-proxy.js /usr/local/bin/host-terminal.sh /usr/local/bin/set-password /usr/local/bin/show-ssh-key /usr/local/bin/browserless-mcp && \
     ln -sf /usr/local/bin/show-ssh-key /usr/local/bin/git-key
 
 ENV HOME=/home/${USERNAME} \

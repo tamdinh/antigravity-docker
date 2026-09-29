@@ -216,13 +216,74 @@ test('Security - Body Parser & Multibyte Handling (SEC-16)', async (t) => {
     });
 });
 
+test('Security - Web Gateway Hardening & SSRF Prevention', async (t) => {
+    const { proxyWebRequest } = require('../proxy/lib/proxy.js');
+    const { isAuthenticated, activeSessions, SESSION_TTL_MS } = require('../proxy/lib/session.js');
+
+    await t.test('proxyWebRequest rejects scheme-relative and SSRF target paths', async () => {
+        const mockContext = {
+            req: {
+                method: 'GET',
+                raw: {
+                    headers: new Headers(),
+                    url: 'http://localhost:4400//evil.com/test'
+                },
+                header: () => null
+            },
+            text: (msg, code) => ({ msg, code })
+        };
+
+        let fetchUrl = null;
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (url) => {
+            fetchUrl = url;
+            return new Response('OK', { status: 200, headers: new Headers({ 'content-type': 'text/plain' }) });
+        };
+
+        try {
+            await proxyWebRequest(mockContext, 4400, '//evil.com/test');
+            assert.ok(fetchUrl.startsWith('http://127.0.0.1:4400/'), `fetch URL must target 127.0.0.1:4400, got: ${fetchUrl}`);
+            assert.equal(new URL(fetchUrl).hostname, '127.0.0.1');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    await t.test('isAuthenticated supports Context, Request, and raw cookie headers', () => {
+        const token = 'test-valid-session-token';
+        activeSessions.set(token, {
+            createdAt: Date.now(),
+            expiresAt: Date.now() + SESSION_TTL_MS
+        });
+
+        try {
+            // Hono Context-like object
+            const honoCtx = { req: { header: (k) => k === 'cookie' ? `antigravity_session=${token}` : null } };
+            assert.ok(isAuthenticated(honoCtx));
+
+            // Fetch Request-like object
+            const reqObj = { headers: new Headers({ cookie: `antigravity_session=${token}` }) };
+            assert.ok(isAuthenticated(reqObj));
+
+            // Raw cookie string
+            assert.ok(isAuthenticated(`antigravity_session=${token}`));
+
+            // Invalid session
+            assert.equal(isAuthenticated('antigravity_session=invalid-token'), false);
+        } finally {
+            activeSessions.delete(token);
+        }
+    });
+});
+
 test('Security - Dynamic Password & Session Lifecycle', async (t) => {
     const TEST_PORT = 15577;
     const tmpDir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'agy-sec-test-'));
     const passFile = path.join(tmpDir, 'auth_password');
+    const runtimeBin = (typeof Bun !== 'undefined' || process.isBun) ? process.execPath : 'bun';
 
     // Initially start with NO password in env, pointing to passFile which does not exist yet
-    const proxyProc = spawn(process.execPath, [path.join(__dirname, '../proxy/auth-proxy.js')], {
+    const proxyProc = spawn(runtimeBin, [path.join(__dirname, '../proxy/auth-proxy.js')], {
         env: {
             ...process.env,
             AGY_PORT: String(TEST_PORT),
@@ -267,9 +328,15 @@ test('Security - Dynamic Password & Session Lifecycle', async (t) => {
             assert.equal(res.status, 200);
             assert.ok(res.body.includes('Sidecar Manager'));
 
-            const { buildInjectedScript } = require('../proxy/lib/ui-injection.js');
-            const script = buildInjectedScript();
-            assert.ok(script.includes('Unprotected'));
+            const origEnvPass = process.env.AUTH_PASSWORD;
+            process.env.AUTH_PASSWORD = '';
+            try {
+                const { buildInjectedScript } = require('../proxy/lib/ui-injection.js');
+                const script = buildInjectedScript();
+                assert.ok(script.includes('Unprotected'));
+            } finally {
+                process.env.AUTH_PASSWORD = origEnvPass;
+            }
         });
 
         await t.test('dynamically activates password protection when password file is written', async () => {
