@@ -62,7 +62,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     python-is-python3 \
     && rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir --break-system-packages --root-user-action=ignore uv poetry pipenv virtualenv
+    python3 -m pip install --no-cache-dir --break-system-packages --root-user-action=ignore --ignore-installed pip setuptools wheel && \
+    python3 -m pip install --no-cache-dir --break-system-packages --root-user-action=ignore --ignore-installed uv poetry pipenv virtualenv
 
 # 5. Install code-server (VS Code Web IDE) and ttyd (Web Terminal)
 RUN curl -fsSL https://code-server.dev/install.sh | sh && \
