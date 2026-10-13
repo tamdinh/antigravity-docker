@@ -198,6 +198,14 @@ if [ -d "$CUSTOMIZATIONS_SRC" ]; then
                 updated = true;
                 console.log(" [Customizations] Added Browserless MCP server to existing mcp_config.json");
             }
+            if (!data.mcpServers.rea) {
+                data.mcpServers.rea = {
+                    command: "npx",
+                    args: ["-y", "rea-agents"]
+                };
+                updated = true;
+                console.log(" [Customizations] Added REA (Reverse Engineer Anything) MCP server to existing mcp_config.json");
+            }
             if (updated) {
                 fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
             }

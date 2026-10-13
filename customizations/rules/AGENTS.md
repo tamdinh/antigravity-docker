@@ -145,4 +145,24 @@ When performing web scraping, browser automation, web page auditing, or headless
 - For European regional endpoints, configure `BROWSERLESS_API_URL` (`https://production-lon.browserless.io` or `https://production-ams.browserless.io`).
 - **Security**: Never log or commit Browserless API tokens into Git.
 
+---
+
+# REA (Reverse Engineer Anything) Guidelines for AI Agents
+
+When performing reverse engineering, binary analysis, application extraction, or feature recreation tasks:
+
+## 1. Structured CLI Automation
+- Always pass `--json` to `rea-agents` commands to ensure machine-parseable output:
+  `npx -y rea-agents@latest analyze-javascript-application <path> --json`
+- Perform extraction and static inspection inside `/tmp` or scratch directories to avoid cluttering the user workspace.
+
+## 2. REA MCP Integration
+- When the `rea` MCP server is available, leverage its dedicated tools to inspect application bundles, Electron ASAR packages, and native binary artifacts.
+- Follow the 3-step loop: **Decompile** (unpack artifacts) $\rightarrow$ **Understand** (trace contracts, IPC, and call flows) $\rightarrow$ **Recreate** (clean-room reimplementation).
+
+## 3. Evidence-First Integrity & Clean Reimplementation
+- **Cite Evidence**: Support architectural and algorithmic explanations with concrete artifact references (file paths, IPC channels, symbol names, line numbers).
+- **Distinguish Facts from Inferences**: State clearly what is verified from code analysis versus what is inferred or unknown.
+- **Clean-Room Code**: Recreate functionality using idiomatic, clean code conforming to the project's tech stack and standards. Do not directly copy disassembled or proprietary strings.
+
 

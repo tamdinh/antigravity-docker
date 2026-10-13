@@ -376,6 +376,30 @@ The container provides built-in integration with the official hosted **Browserle
 
 ---
 
+## 🔍 Built-in REA (Reverse Engineer Anything) Tools, Skills & MCP Integration
+
+The container provides native out-of-the-box support for **[REA](https://rea.tools)** ([`morluto/rea`](https://github.com/morluto/rea)), enabling the AI agent to deconstruct, trace, and recreate functionality from compiled software, JavaScript/Electron bundles, and binary artifacts without source code.
+
+### What is Included:
+1. **Developer Tools**:
+   - `rea-agents`: Official REA CLI suite for direct static inspection, unpacking, and reverse engineering analysis.
+   - Pre-installed globally in the container for immediate access from the Web Terminal and automated scripts.
+
+2. **Pre-configured REA MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json` via `rea-agents`.
+   - Empowers the AI agent to:
+     - Analyze unpacked JavaScript and Electron applications (`.asar`, preload scripts, IPC channels, sourcemaps).
+     - Inspect package container structures (ZIP, ASAR, APK, IPA).
+     - Query symbol references, strings, and structures in native binary artifacts.
+
+3. **Packaged Antigravity Skill**:
+   - `rea`: Located in `~/.gemini/config/skills/rea/SKILL.md`. Automatically guides the AI agent with extraction recipes, command syntax (`npx -y rea-agents@latest analyze-javascript-application ... --json`), and the three-stage *Decompile $\rightarrow$ Understand $\rightarrow$ Recreate* workflow.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Enforces structured JSON output (`--json`), Evidence v2 standards (explicit confidence ratings and verified facts), clean-room reimplementation, and safe workspace practices.
+
+---
+
 ## 🛡️ Privacy & Telemetry Management
 
 By default, `BLOCK_TELEMETRY=true` is enabled to prevent usage telemetry,

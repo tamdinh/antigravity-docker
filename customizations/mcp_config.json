@@ -15,6 +15,10 @@
     "browserless": {
       "command": "browserless-mcp",
       "args": ["https://mcp.browserless.io/mcp"]
+    },
+    "rea": {
+      "command": "npx",
+      "args": ["-y", "rea-agents"]
     }
   }
 }
