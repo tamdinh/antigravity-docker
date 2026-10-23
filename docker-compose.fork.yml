@@ -4,6 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.fork
+    command: ["daemon"]
     environment:
       - TRUST_PROXY=${TRUST_PROXY:-true}
       - TERMINAL_MODE=${TERMINAL_MODE:-auto}

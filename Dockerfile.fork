@@ -28,3 +28,4 @@ RUN chmod +x /usr/local/share/antigravity/fork/*.sh \
     ln -sf /usr/local/share/antigravity/fork/browserless-mcp.sh /usr/local/bin/browserless-mcp
 
 ENTRYPOINT ["/usr/local/bin/fork-entrypoint.sh"]
+CMD ["daemon"]
