@@ -1,4 +1,6 @@
-const { AUTH_PASSWORD, getAuthPassword, TRUST_PROXY } = require('./config');
+'use strict';
+
+const { getAuthPassword, TRUST_PROXY } = require('./config');
 
 // In-Memory Session Store: Map<sessionToken, { createdAt: number, expiresAt: number }>
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -20,19 +22,6 @@ setInterval(() => {
         if (record.resetTime <= now && record.lockUntil <= now) loginRateLimiter.delete(ip);
     }
 }, 60 * 1000);
-
-// Extract client IP address (only trust reverse proxy X-Forwarded-For if TRUST_PROXY is enabled)
-function getClientIp(req) {
-    const remote = req.socket?.remoteAddress || '127.0.0.1';
-    if (TRUST_PROXY && req.headers['x-forwarded-for']) {
-        const raw = req.headers['x-forwarded-for'];
-        const forwarded = Array.isArray(raw) ? raw[0] : raw;
-        if (typeof forwarded === 'string') {
-            return forwarded.split(',')[0].trim();
-        }
-    }
-    return remote;
-}
 
 // Check rate limit status for login
 function checkRateLimit(ip) {
@@ -64,24 +53,23 @@ function recordFailedAttempt(ip) {
     }
 }
 
-// Parse cookies from header string
+// Parse cookies from header string safely
 function parseCookiesFromHeader(cookieHeader) {
     const list = {};
-    if (!cookieHeader) return list;
+    if (!cookieHeader || typeof cookieHeader !== 'string') return list;
 
     cookieHeader.split(';').forEach(cookie => {
         let [name, ...rest] = cookie.split('=');
         name = name?.trim();
         if (!name) return;
         const value = rest.join('=').trim();
-        list[name] = decodeURIComponent(value);
+        try {
+            list[name] = decodeURIComponent(value);
+        } catch {
+            list[name] = value;
+        }
     });
     return list;
-}
-
-// Parse cookies helper
-function parseCookies(req) {
-    return parseCookiesFromHeader(req.headers?.cookie);
 }
 
 // Check if token or session is valid
@@ -122,10 +110,8 @@ module.exports = {
     SESSION_TTL_MS,
     activeSessions,
     loginRateLimiter,
-    getClientIp,
     checkRateLimit,
     recordFailedAttempt,
-    parseCookies,
     parseCookiesFromHeader,
     isAuthenticated,
 };

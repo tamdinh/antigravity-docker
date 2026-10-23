@@ -220,6 +220,40 @@ test('Sidecar Manager - CRUD & Persistence', async (t) => {
         const config = sidecarManager.readConfig();
         assert.equal(config.sidecars[testId], undefined);
     });
+
+    await t.test('prevents stopWorker/startWorker race condition when old worker closes after new worker starts', async () => {
+        const raceId = 'test-race-worker';
+        try {
+            await sidecarManager.saveSidecar({
+                id: raceId,
+                displayName: 'Race Worker',
+                command: process.execPath,
+                args: ['-e', 'setTimeout(() => {}, 10000)'],
+                restartPolicy: 'always',
+                enabled: true
+            });
+
+            const firstWorker = sidecarManager.runningWorkers.get(raceId);
+            assert.ok(firstWorker, 'First worker should be running');
+
+            // Stop and immediately start a new worker (as saveSidecar does on update)
+            sidecarManager.stopWorker(raceId);
+            await sidecarManager.startWorker(sidecarManager.getSidecar(raceId));
+
+            const secondWorker = sidecarManager.runningWorkers.get(raceId);
+            assert.ok(secondWorker, 'Second worker should be registered immediately');
+            assert.notEqual(firstWorker, secondWorker);
+
+            // Wait for firstWorker process to close
+            await new Promise(r => setTimeout(r, 250));
+
+            // Second worker must still be tracked in runningWorkers and not overwritten or deleted
+            assert.equal(sidecarManager.runningWorkers.get(raceId), secondWorker);
+            assert.equal(firstWorker.stopped, true);
+        } finally {
+            await sidecarManager.deleteSidecar(raceId);
+        }
+    });
 });
 
 test('Sidecar Manager - HTTP Proxy Integration', async (t) => {
@@ -498,5 +532,94 @@ test('Sidecar Manager - Plugin Sidecars & Adjacent Binaries', { skip: process.pl
             try { fs.unlinkSync(pluginsJsonPath); } catch (e) {}
         }
     }
+});
+
+test('Sidecar Manager - Model Selection & Defaults', async (t) => {
+    await t.test('defaults sidecars to flash tier when unspecified', () => {
+        assert.equal(sidecarManager.DEFAULT_SIDECAR_MODEL, 'flash');
+    });
+
+    await t.test('creates sidecar with explicit model and persists it', async () => {
+        const testId = 'test-model-explicit';
+        try {
+            const saved = await sidecarManager.saveSidecar({
+                id: testId,
+                displayName: 'Explicit Model Bot',
+                command: 'echo',
+                args: ['test'],
+                model: 'flash_lite',
+                restartPolicy: 'never',
+                enabled: true
+            });
+
+            assert.equal(saved.model, 'flash_lite');
+
+            const found = sidecarManager.getSidecar(testId);
+            assert.ok(found);
+            assert.equal(found.model, 'flash_lite');
+
+            const config = sidecarManager.readConfig();
+            assert.equal(config.sidecars[testId].model, 'flash_lite');
+
+            // Reverting to inherit / null clears override
+            const reverted = await sidecarManager.saveSidecar({
+                id: testId,
+                displayName: 'Explicit Model Bot',
+                command: 'echo',
+                args: ['test'],
+                model: null,
+                restartPolicy: 'never',
+                enabled: true
+            });
+            assert.equal(reverted.model, 'flash'); // defaults back to flash
+            const revertedConfig = sidecarManager.readConfig();
+            assert.equal(revertedConfig.sidecars[testId].model, undefined);
+        } finally {
+            await sidecarManager.deleteSidecar(testId);
+        }
+    });
+
+    await t.test('defaults sidecar to flash when no model is specified and respects configured model', async () => {
+        const defaultId = 'test-default-worker';
+        const configuredId = 'test-pro-worker';
+        try {
+            const savedDefault = await sidecarManager.saveSidecar({
+                id: defaultId,
+                displayName: 'Default Worker',
+                command: 'echo',
+                args: ['default'],
+                restartPolicy: 'never',
+                enabled: true
+            });
+            assert.equal(savedDefault.model, 'flash');
+
+            const savedConfigured = await sidecarManager.saveSidecar({
+                id: configuredId,
+                displayName: 'Pro Worker',
+                command: 'echo',
+                args: ['pro'],
+                model: 'pro',
+                restartPolicy: 'never',
+                enabled: true
+            });
+            assert.equal(savedConfigured.model, 'pro');
+        } finally {
+            await sidecarManager.deleteSidecar(defaultId);
+            await sidecarManager.deleteSidecar(configuredId);
+        }
+    });
+
+    await t.test('buildSidecarEnv injects ANTIGRAVITY_MODEL and AGY_MODEL matching sidecar model', async () => {
+        const dataDir = '/tmp/test-sidecar-data-model';
+        const flashEnv = await sidecarManager.buildSidecarEnv({ id: 'test-flash', model: 'flash' }, dataDir);
+        assert.equal(flashEnv.ANTIGRAVITY_MODEL, 'flash');
+        assert.equal(flashEnv.AGY_MODEL, 'flash');
+        assert.equal(flashEnv.ANTIGRAVITY_DEFAULT_MODEL, 'flash');
+
+        const proEnv = await sidecarManager.buildSidecarEnv({ id: 'test-pro', model: 'pro' }, dataDir);
+        assert.equal(proEnv.ANTIGRAVITY_MODEL, 'pro');
+        assert.equal(proEnv.AGY_MODEL, 'pro');
+        assert.equal(proEnv.ANTIGRAVITY_DEFAULT_MODEL, 'pro');
+    });
 });
 

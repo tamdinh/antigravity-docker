@@ -52,6 +52,8 @@ function resolveSecureSubpath(baseDir, id, subDir = '') {
     return target;
 }
 
+const DEFAULT_SIDECAR_MODEL = 'flash';
+
 /**
  * Safely reads a file's trimmed UTF-8 content if the file exists.
  * Optionally limits read size to maxBytes to avoid reading massive log files.
@@ -505,8 +507,9 @@ class SidecarManager extends EventEmitter {
                                         : (parsed.enabled !== undefined ? parsed.enabled : !pluginDisabledByDefault)
                                 );
                                 const projectId = userConf.projectId || parsed.projectId || '';
+                                const model = userConf.model || parsed.model || null;
 
-                                sidecars.push(this.formatSidecarInfo(id, parsed, isEnabled, projectId, true, sidecarDir));
+                                sidecars.push(this.formatSidecarInfo(id, parsed, isEnabled, projectId, true, sidecarDir, model));
                             } catch (e) {
                                 console.error(`[Sidecar Manager] Failed parsing ${sidecarJsonPath}:`, e.message);
                             }
@@ -610,8 +613,9 @@ class SidecarManager extends EventEmitter {
                                 const userConf = sidecarsConfig[id] || {};
                                 const isEnabled = Boolean(userConf.enabled !== undefined ? userConf.enabled : parsed.enabled);
                                 const projectId = userConf.projectId || parsed.projectId || '';
+                                const model = userConf.model || parsed.model || null;
 
-                                sidecars.push(this.formatSidecarInfo(id, parsed, isEnabled, projectId, false, sidecarDir));
+                                sidecars.push(this.formatSidecarInfo(id, parsed, isEnabled, projectId, false, sidecarDir, model));
                             } catch (e) {
                                 console.error(`[Sidecar Manager] Failed parsing ${sidecarJsonPath}:`, e.message);
                             }
@@ -664,17 +668,26 @@ class SidecarManager extends EventEmitter {
         return sidecars;
     }
 
-    formatSidecarInfo(id, parsed, isEnabled, projectId, isPlugin = false, sidecarDir = null) {
+    formatSidecarInfo(id, parsed, isEnabled, projectId, isPlugin = false, sidecarDir = null, model = null) {
         const isScheduled = parsed.builtin === 'schedule';
         const cronExpr = isScheduled && Array.isArray(parsed.args) ? parsed.args[0] : '';
         const workerInfo = this.runningWorkers.get(id);
         const scheduledInfo = this.scheduledJobs.get(id);
 
+        const argModel = (parsed.args || []).find(a => typeof a === 'string' && a.startsWith('--model='))?.slice('--model='.length);
+        const resolvedModel = model || parsed.model || argModel || DEFAULT_SIDECAR_MODEL;
+
         let status = 'stopped';
         if (isEnabled) {
             if (isScheduled) {
                 status = 'scheduled';
-            } else if (workerInfo && workerInfo.process && !workerInfo.process.killed) {
+            } else if (
+                workerInfo &&
+                workerInfo.process &&
+                !workerInfo.process.killed &&
+                workerInfo.process.exitCode === null &&
+                workerInfo.process.signalCode === null
+            ) {
                 status = 'running';
             } else {
                 status = 'starting';
@@ -694,6 +707,7 @@ class SidecarManager extends EventEmitter {
             env: parsed.env || {},
             enabled: isEnabled,
             projectId: projectId || '',
+            model: resolvedModel,
             isPlugin,
             pluginName: isPlugin ? id.split('/')[0] : null,
             directory: resolvedDir,
@@ -767,6 +781,10 @@ class SidecarManager extends EventEmitter {
                 sidecarJson.env = data.env;
             }
 
+            if (data.model) {
+                sidecarJson.model = data.model;
+            }
+
             const sidecarFilePath = path.join(dirPath, 'sidecar.json');
             fs.writeFileSync(sidecarFilePath, JSON.stringify(sidecarJson, null, 2), 'utf8');
         }
@@ -775,10 +793,18 @@ class SidecarManager extends EventEmitter {
         const config = this.readConfig();
         if (!config.sidecars) config.sidecars = {};
         const enabled = Boolean(data.enabled !== undefined ? data.enabled : true);
-        config.sidecars[id] = {
+        const sidecarConf = {
             enabled,
             projectId: data.projectId || ''
         };
+        if (data.model !== undefined) {
+            if (data.model && data.model !== 'inherit') {
+                sidecarConf.model = data.model;
+            }
+        } else if (config.sidecars[id]?.model) {
+            sidecarConf.model = config.sidecars[id].model;
+        }
+        config.sidecars[id] = sidecarConf;
         this.writeConfig(config);
 
         console.log(`[Sidecar Manager] 💾 Saved sidecar definition '${id}' (Enabled: ${enabled})`);
@@ -924,6 +950,13 @@ class SidecarManager extends EventEmitter {
             env.AGY_PROJECT_ID = sidecar.projectId;
             env.ANTIGRAVITY_PROJECT_ID = sidecar.projectId;
         }
+
+        const resolvedModel = sidecar.model || DEFAULT_SIDECAR_MODEL;
+        if (resolvedModel) {
+            env.ANTIGRAVITY_MODEL = sidecar.env?.ANTIGRAVITY_MODEL || resolvedModel;
+            env.AGY_MODEL = sidecar.env?.AGY_MODEL || resolvedModel;
+            env.ANTIGRAVITY_DEFAULT_MODEL = sidecar.env?.ANTIGRAVITY_DEFAULT_MODEL || resolvedModel;
+        }
         return env;
     }
 
@@ -958,7 +991,8 @@ class SidecarManager extends EventEmitter {
                 process: child,
                 startedAt: new Date().toISOString(),
                 restartCount: (this.runningWorkers.get(id)?.restartCount || 0),
-                timer: null
+                timer: null,
+                stopped: false
             };
             this.runningWorkers.set(id, workerEntry);
 
@@ -980,28 +1014,31 @@ class SidecarManager extends EventEmitter {
             child.on('close', (code, signal) => {
                 logStream.end();
                 console.log(`[Sidecar Manager] ⚠️ Worker '${id}' exited (Code: ${code}, Signal: ${signal})`);
-                this.runningWorkers.delete(id);
+                if (this.runningWorkers.get(id) === workerEntry) {
+                    this.runningWorkers.delete(id);
+                }
+                if (workerEntry.stopped) {
+                    return;
+                }
 
                 const currentSidecar = this.getSidecar(id);
                 if (currentSidecar && currentSidecar.enabled) {
                     const policy = currentSidecar.restartPolicy || 'always';
                     const shouldRestart = (policy === 'always') || (policy === 'on-failure' && code !== 0);
-                    const MAX_RESTART_RETRIES = 10;
 
                     if (shouldRestart) {
-                        if ((workerEntry.restartCount || 0) < MAX_RESTART_RETRIES) {
-                            console.log(`[Sidecar Manager] 🔁 Restarting worker '${id}' in 3s (Attempt ${workerEntry.restartCount + 1}/${MAX_RESTART_RETRIES}, Policy: ${policy})...`);
-                            const timer = setTimeout(() => {
-                                const latest = this.getSidecar(id);
-                                if (latest && latest.enabled && !latest.isScheduled) {
-                                    workerEntry.restartCount += 1;
-                                    this.startWorker(latest);
-                                }
-                            }, 3000);
-                            this.runningWorkers.set(id, { ...workerEntry, process: null, timer });
-                        } else {
-                            console.error(`[Sidecar Manager] 🛑 Worker '${id}' exceeded maximum restart attempts (${MAX_RESTART_RETRIES}). Pausing auto-restart.`);
-                        }
+                        console.log(`[Sidecar Manager] 🔁 Restarting worker '${id}' in 3s (Policy: ${policy})...`);
+                        const timer = setTimeout(() => {
+                            if (workerEntry.stopped) return;
+                            const latest = this.getSidecar(id);
+                            if (latest && latest.enabled && !latest.isScheduled) {
+                                workerEntry.restartCount += 1;
+                                this.startWorker(latest);
+                            }
+                        }, 3000);
+                        workerEntry.process = null;
+                        workerEntry.timer = timer;
+                        this.runningWorkers.set(id, workerEntry);
                     }
                 }
             });
@@ -1017,13 +1054,15 @@ class SidecarManager extends EventEmitter {
         const cleanId = sanitizeSidecarId(id);
         const worker = this.runningWorkers.get(cleanId);
         if (worker) {
+            worker.stopped = true;
             if (worker.timer) clearTimeout(worker.timer);
-            if (worker.process && !worker.process.killed) {
+            const proc = worker.process;
+            if (proc && proc.exitCode === null && proc.signalCode === null) {
                 try {
-                    worker.process.kill('SIGTERM');
+                    proc.kill('SIGTERM');
                     setTimeout(() => {
-                        if (worker.process && !worker.process.killed) {
-                            try { worker.process.kill('SIGKILL'); } catch (e) {}
+                        if (proc.exitCode === null && proc.signalCode === null) {
+                            try { proc.kill('SIGKILL'); } catch (e) {}
                         }
                     }, 2000);
                 } catch (e) {}
@@ -1075,16 +1114,8 @@ class SidecarManager extends EventEmitter {
             return;
         }
 
-        let execCommand = args[1];
-        const execArgs = args.slice(2);
-        if (execCommand === 'agentapi') {
-            const candidateAgy = path.join(LOCAL_BIN_DIR, 'agy');
-            if (process.env.ANTIGRAVITY_AGENTAPI_EXE && fs.existsSync(process.env.ANTIGRAVITY_AGENTAPI_EXE)) {
-                execCommand = process.env.ANTIGRAVITY_AGENTAPI_EXE;
-            } else if (fs.existsSync(candidateAgy)) {
-                execCommand = candidateAgy;
-            }
-        }
+        const execCommand = args[1];
+        let execArgs = args.slice(2);
         const sidecarDir = sidecar.directory || this.getSidecarDir(id);
         const dataDir = resolveSecureSubpath(RUNTIME_DATA_DIR, id, 'data');
         const logsDir = resolveSecureSubpath(RUNTIME_DATA_DIR, id, 'logs');
@@ -1098,11 +1129,23 @@ class SidecarManager extends EventEmitter {
         const latestLogFile = path.join(logsDir, 'latest.log');
         const logStream = fs.createWriteStream(logFile, { flags: 'w' });
         const env = await this.buildSidecarEnv(sidecar, dataDir, sidecarDir);
+        const resolvedModel = sidecar.model || DEFAULT_SIDECAR_MODEL;
 
-        // Special logging if agentapi prompt is fired
-        if ((args[1] === 'agentapi' || execCommand.endsWith('agy')) && execArgs[0] === 'new-conversation') {
+        // Special logging and model injection if agentapi prompt is fired
+        if (execCommand === 'agentapi' && execArgs[0] === 'new-conversation') {
+            const hasModel = execArgs.some(a => typeof a === 'string' && a.startsWith('--model='));
+            if (!hasModel && resolvedModel) {
+                execArgs = [execArgs[0], `--model=${resolvedModel}`, ...execArgs.slice(1)];
+            }
             const prompt = execArgs[execArgs.length - 1];
-            console.log(`[Sidecar Manager] 💬 Firing agentapi prompt for '${id}' [Project: ${sidecar.projectId || 'default'}]: "${prompt}"`);
+            console.log(`[Sidecar Manager] 💬 Firing agentapi prompt for '${id}' [Project: ${sidecar.projectId || 'default'}, Model: ${resolvedModel}]: "${prompt}"`);
+        } else if (execCommand === 'agy' && execArgs[0] === 'agentapi' && execArgs[1] === 'new-conversation') {
+            const hasModel = execArgs.some(a => typeof a === 'string' && a.startsWith('--model='));
+            if (!hasModel && resolvedModel) {
+                execArgs = [execArgs[0], execArgs[1], `--model=${resolvedModel}`, ...execArgs.slice(2)];
+            }
+            const prompt = execArgs[execArgs.length - 1];
+            console.log(`[Sidecar Manager] 💬 Firing agy agentapi prompt for '${id}' [Project: ${sidecar.projectId || 'default'}, Model: ${resolvedModel}]: "${prompt}"`);
         } else {
             console.log(`[Sidecar Manager] ⏰ Firing scheduled command for '${id}': ${execCommand} ${execArgs.join(' ')}`);
         }
@@ -1159,10 +1202,6 @@ class SidecarManager extends EventEmitter {
             await this.executeScheduledJob(sidecar);
             return { message: `Triggered scheduled job for '${cleanId}'` };
         } else {
-            const currentWorker = this.runningWorkers.get(cleanId);
-            if (currentWorker) {
-                currentWorker.restartCount = 0;
-            }
             this.startWorker(sidecar);
             return { message: `Restarted worker '${cleanId}'` };
         }
@@ -1202,5 +1241,6 @@ instance.describeCron = describeCron;
 instance.getNextCronRun = getNextCronRun;
 instance.sanitizeSidecarId = sanitizeSidecarId;
 instance.resolveSecureSubpath = resolveSecureSubpath;
+instance.DEFAULT_SIDECAR_MODEL = DEFAULT_SIDECAR_MODEL;
 
 module.exports = instance;

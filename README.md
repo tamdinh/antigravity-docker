@@ -16,12 +16,11 @@ powered by **Bun** and **Hono** for ultra-fast startup and low memory usage.
 Add this service to your `docker-compose.yml`:
 
 ```yaml
+version: '3.8'
+
 services:
   antigravity:
-    image: ghcr.io/tamdinh/antigravity-docker:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: jklinker/antigravity:latest
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -34,29 +33,17 @@ services:
       - AUTH_PASSWORD=<password-for-login>
       - ENABLE_IDE=true
       - ENABLE_TERMINAL=true
-      - TERMINAL_MODE=auto
-      - HOST_SSH_USER=
+      - HOST_SSH_USER=<host-username>
       - HOST_SSH_HOST=host.docker.internal
       - HOST_SSH_PORT=22
-      - HOST_SSH_DIR=
-      - GIT_USER_NAME=${GIT_USER_NAME:-}
-      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
-      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
-      - GH_TOKEN=${GH_TOKEN:-}
-      - VERCEL_TOKEN=${VERCEL_TOKEN:-}
-      - DOKPLOY_URL=${DOKPLOY_URL:-}
-      - DOKPLOY_API_KEY=${DOKPLOY_API_KEY:-}
+      - HOST_SSH_DIR=<host-directory-path>
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - antigravity-workspace:/workspace
-      - antigravity-gemini:/home/developer/.gemini
-      - antigravity-ssh:/home/developer/.ssh
-
-volumes:
-  antigravity-workspace:
-  antigravity-gemini:
-  antigravity-ssh:
+      - <location-of-projects>:/workspace
+      - <location-of-config>:/home/developer/.gemini
+      - <location-of-ssh>:/home/developer/.ssh
+      - <location-of-gitconfig>:/home/developer/.gitconfig
 ```
 
 ---
@@ -75,28 +62,16 @@ volumes:
 | `AUTH_PASSWORD` | *(empty)* | Optional password to protect web access. When set, prompts for login and remembers session for 30 days. |
 | `BLOCK_TELEMETRY` | `true` | When `true` (default), blocks Google usage telemetry, analytics, crash reporting, and diagnostic tracking domains via in-container DNS sinkholing (`0.0.0.0`) and disables OpenTelemetry exporters, while keeping Gemini model APIs and authentication working seamlessly. |
 | `ENABLE_IDE` | `true` | Set to `false` to disable the VS Code Web IDE service and hide its UI button. |
-| `ENABLE_TERMINAL` | `true` | Set to `false` to disable the Web Terminal service and hide its UI button. |
-| `TERMINAL_MODE` | `auto` | Terminal operational mode. Options: `auto`, `container` (or `local`), `host`. <br>• `auto`: When `HOST_SSH_USER` is empty, displays an interactive 3-second selection menu defaulting to the container shell; when set, connects to the host via SSH. <br>• `container`: Bypasses SSH completely and directly launches an internal Bash shell in `/workspace` with pre-installed developer tools (`agy`, `git`, `gh`, `vercel`, `node`, `python3`, `uv`, `poetry`, etc.). <br>• `host`: Strictly initiates an interactive SSH connection to the host machine. |
-| `HOST_SSH_USER` | *(empty)* | Host username used by the Web Terminal when connecting to the host machine via SSH. When left empty and `TERMINAL_MODE=auto`, defaults to the container shell. |
+| `ENABLE_TERMINAL` | `true` | Set to `false` to disable the Host Web Terminal service and hide its UI button. |
+| `HOST_SSH_USER` | *(workspace owner)* | Host username used by the Web Terminal to connect to the host machine via SSH. |
 | `HOST_SSH_HOST` | `host.docker.internal` | Hostname/IP used by Web Terminal to reach the host machine. |
 | `HOST_SSH_PORT` | `22` | SSH port on the host machine. |
 | `HOST_SSH_DIR` | *(host user home)* | *(Optional)* Absolute directory on the host machine to automatically `cd` into when opening the Web Terminal. |
-| `SSH_PRIVATE_KEY` | *(empty)* | *(Optional)* Raw or base64-encoded private key string automatically imported into `/home/developer/.ssh/id_ed25519` at runtime. |
-| `GIT_USER_NAME` | *(empty)* | Optional Git user.name configured globally for developer commits. |
-| `GIT_USER_EMAIL` | *(empty)* | Optional Git user.email configured globally for developer commits. |
-| `GH_TOKEN` / `GITHUB_TOKEN` | *(empty)* | Optional GitHub Personal Access Token for GitHub CLI (`gh`). Automatically authenticates `gh` commands without manual login. |
-| `VERCEL_TOKEN` | *(empty)* | Optional Vercel API Token for Vercel CLI deployments. |
-| `VERCEL_ORG_ID` | *(empty)* | *(Optional)* Vercel Team/Organization ID for team-scoped deployments. |
-| `VERCEL_PROJECT_ID` | *(empty)* | *(Optional)* Vercel Project ID to link deployments to a specific project. |
-| `EXPO_TOKEN` | *(empty)* | *(Optional)* Expo Access Token for EAS Cloud builds, submissions, and OTA updates without interactive login. |
-| `DOKPLOY_URL` | *(empty)* | *(Optional)* Dokploy server URL (e.g. `https://panel.dokploy.com` or `http://<ip>:3000`) for remote server management. |
-| `DOKPLOY_API_KEY` | *(empty)* | *(Optional)* Dokploy API Key for non-interactive Dokploy CLI and Dokploy MCP authentication. |
-| `BROWSERLESS_TOKEN` | *(empty)* | *(Optional)* Browserless API Token for Browserless hosted MCP server (`https://mcp.browserless.io/mcp`). Enables passwordless browser automation without OAuth. |
-| `BROWSERLESS_API_URL` | *(empty)* | *(Optional)* Custom or regional Browserless endpoint (e.g. `https://production-lon.browserless.io` or self-hosted). Defaults to US West (`https://production-sfo.browserless.io`). |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 | `CUSTOM_MODEL_TIMEOUT_SECONDS` | `600` | Optional global timeout in seconds for external model completion requests (default: 10 minutes). |
 | `CUSTOM_MODEL_TIMEOUT_MS` | *(empty)* | Optional global timeout in milliseconds (overrides `CUSTOM_MODEL_TIMEOUT_SECONDS`). |
+| `ENABLE_TRANSLATION_PROXY` | `true` | Enables the internal translation proxy (port `4405`) by default for model tier overrides (`pro` → Gemini 4 Argon) and custom model injection. |
 
 ### Volumes
 
@@ -123,7 +98,7 @@ docker compose run --rm antigravity setup
 ```bash
 docker run -it --rm \
   -v "<location-of-config>:/home/developer/.gemini" \
-  ghcr.io/tamdinh/antigravity-docker:latest setup
+  jklinker/antigravity:latest setup
 ```
 
 1. Open the Google sign-in URL shown in the terminal.
@@ -171,15 +146,15 @@ Navigate to `http://<your-server-ip>:4400` in your browser (or through your
 reverse proxy). If configured, enter your `AUTH_PASSWORD` on the login screen to
 unlock your session for 30 days.
 
-Once logged in, all services are accessible directly or via the **Draggable Floating Tools Dock** (which can be dragged to any position on the screen to avoid obstructing the chat UI):
+Once logged in, all services are accessible:
 
 | Service | Path | Description | Authentication |
 | :--- | :--- | :--- | :--- |
-| **Google Antigravity UI** | `/` | Main chat and conversation interface. Equipped with a **Draggable Floating Tools Dock** for launching workspace tools with auto-remembered screen placement. | Protected 🔒 |
+| **Google Antigravity UI** | `/` | Main chat interface. Injected with **Custom Models**, **Sidecar Manager**, **Web IDE**, and **Host Terminal** sidebar buttons. | Protected 🔒 |
 | **Custom Models** | `/models` | Web UI for configuring Anthropic, OpenAI, or local Ollama endpoints in Antigravity's model selector. | Protected 🔒 |
 | **Sidecar Manager** | `/sidecars` | Web UI for defining, scheduling, and monitoring background sidecars and recurring agent prompts. | Protected 🔒 |
 | **VS Code Web IDE** | `/ide/` | Full-featured VS Code in the browser for viewing and editing raw project files in `/workspace`. | Protected 🔒 |
-| **Web Terminal** | `/terminal/` | Web terminal running interactive container Bash sessions (`/workspace`) or SSH sessions to the host machine (configurable via `TERMINAL_MODE`). | Protected 🔒 |
+| **Host Web Terminal** | `/terminal/` | Web terminal running interactive SSH sessions directly on the host machine (manage Docker, run system commands, git, etc.). | Protected 🔒 |
 | **Health & Service Status** | `/status` | Real-time health check endpoint for monitoring service uptime. | **Public / Unauthenticated** 🟢 |
 
 ---
@@ -227,7 +202,7 @@ The built-in **Sidecar Manager** allows you to schedule recurring agent prompts
 (e.g., hourly PR triage, daily summaries) and run background workers directly
 alongside your Antigravity container.
 
-Access it by clicking **Sidecar Manager** in the floating tools dock of the
+Access it by clicking **Sidecar Manager** in the left navigation pane of the
 Antigravity UI or navigating directly to `/sidecars`.
 
 ### Features:
@@ -252,151 +227,52 @@ Antigravity UI or navigating directly to `/sidecars`.
 - **Comprehensive Logging**: Sidecar output is written to
   `~/.gemini/antigravity/sidecar_data/<id>/logs/` and runtime events appear
   directly in `docker compose logs` for debugging.
+- **Model Selection & Defaults**: Sidecars can specify their preferred model
+  tier (`flash`, `pro`, or `flash_lite`) via `sidecar.json` or the Web UI.
 
 ---
 
-## ▲ Built-in Vercel Tools, Skills & MCP Integration
+## 🎨 Custom CSS & Responsive UI Enhancements
 
-The container comes with native, out-of-the-box support for the complete **Vercel Ecosystem** based on official [Vercel LLM Documentation](https://vercel.com/docs/llms-full.txt), empowering the AI agent to understand, deploy, debug, and optimize applications seamlessly on Vercel.
+The web gateway automatically serves `/custom.css` (located in
+`proxy/custom.css`) and injects modern mobile and foldable viewport
+optimizations into the Antigravity web app:
 
-### What is Included:
-1. **Developer Tools**:
-   - `vercel`: Official Vercel CLI for deployments, project linking, domain inspection, and secrets management.
-   - `skills`: The open agent skills ecosystem CLI from Vercel Labs (`skills.sh`).
-   - `add-mcp`: Tool for discovering and configuring Model Context Protocol servers.
-   - `mcp-remote`: Transport bridge for connecting to remote MCP endpoints over stdio.
-
-2. **Pre-configured Vercel MCP Server**:
-   - The official Vercel Model Context Protocol server (`https://mcp.vercel.com`) is pre-configured in `~/.gemini/config/mcp_config.json`.
-   - Gives the AI agent direct access to:
-     - `search_vercel_documentation`: Official docs search.
-     - `list_projects`, `get_project`: Inspect projects and settings.
-     - `list_deployments`, `get_deployment`, `get_deployment_events`: Diagnostic logs for builds and runtime errors.
-     - `query_web_analytics`: Web Analytics queries.
-     - `check_domain_status`, `check_domain_availability`: Custom domain management.
-
-3. **Packaged Antigravity Skills**:
-   The agent automatically discovers and leverages modular skills located in `~/.gemini/config/skills/`:
-   - `vercel-deploy`: Automated preview and production deployments with non-interactive flags (`vercel --prod --yes`).
-   - `vercel-cli`: Comprehensive CLI management guide for linking, environment variables (`vercel env pull/add`), and domains.
-   - `vercel-react-best-practices`: Performance optimization guidelines (RSC boundaries, dynamic imports, bundle size, Core Web Vitals).
-   - `next-best-practices`: Next.js App Router conventions, Cache Components (`use cache`, `cacheLife`, `cacheTag`), and Partial Prerendering (PPR).
-   - `vercel-ai-sdk`: Production AI development using Vercel AI SDK v6 (streaming, tool calling, multi-agent loops).
-   - `vercel-troubleshooting`: Step-by-step diagnostic runbook for 500 runtime errors, function timeouts, build failures, and rollbacks.
-   - `vercel-storage`: Integration recipes for Vercel Blob, Neon Postgres, and Upstash Redis.
-
-4. **Global Agent Guidelines (`AGENTS.md`)**:
-   - Global rules enforce non-interactive automation, prevent accidental `.vercel` directory commits, guide proper environment variable synchronization, and ensure safe secret management.
-
-5. **Instant CLI Authentication**:
-   - Set `VERCEL_TOKEN` in your container environment or `docker-compose.yml`. The container automatically provisions `~/.vercel/auth.json` on startup so all `vercel` CLI commands are pre-authenticated without interactive login prompts.
-
----
-
-## 📱 Built-in Expo & EAS Mobile Development Integration
-
-The container provides full-stack mobile development support for **React Native, Expo, and EAS (Expo Application Services)**, turning your headless agent into a complete mobile development workstation without requiring local macOS, Xcode, or Android SDK installations.
-
-### Why EAS in Docker?
-- **Cloud Builds**: Heavy native compilation for iOS (`.ipa`) and Android (`.aab` / `.apk`) is offloaded to Expo Cloud via `eas build --platform all`. Docker remains lightweight while building real native apps.
-- **Remote Testing via Tunneling**: Run `npx expo start --tunnel` to generate a secure QR code in the Web Terminal that can be scanned by physical iOS/Android devices anywhere in the world.
-- **EAS Updates (OTA)**: Push instant bug fixes directly to user devices via `eas update` without waiting for App Store or Google Play review cycles.
-
-### What is Included:
-1. **Developer Tools**:
-   - `eas-cli`: Official CLI for EAS cloud builds, submissions, and credentials management.
-   - `npx expo`: Bundler, dev client, config plugin generator, and dependency alignment (`npx expo install --fix`).
-
-2. **Pre-configured Expo MCP Server**:
-   - Pre-configured in `~/.gemini/config/mcp_config.json`.
-   - Allows the AI agent to search official Expo documentation, monitor EAS cloud build progress, inspect build logs, and debug native configurations.
-
-3. **Packaged Mobile Skills**:
-   Discovered automatically under `~/.gemini/config/skills/`:
-   - `eas-build-and-deploy`: Setting up `eas.json`, non-interactive cloud builds (`eas build --platform all --non-interactive`), and store submission (`eas submit`).
-   - `expo-router-best-practices`: Universal file-based routing for mobile apps (Stack, Tabs, Modals, Drawer).
-   - `eas-update`: Over-the-air updates, branch/channel management, and instant rollbacks.
-   - `expo-troubleshooting`: Diagnosing EAS build failures, native config plugins in `app.json`, and credentials signing.
-
-4. **Authentication**:
-   - Provide `EXPO_TOKEN` in `docker-compose.yml` to enable non-interactive cloud builds and submissions.
-
----
-
-## 🐳 Built-in Dokploy CLI, Skills & MCP Remote Management
-
-The container integrates native support for **[Dokploy](https://github.com/Dokploy/dokploy)** (and the official **[Dokploy CLI](https://github.com/Dokploy/cli)**), allowing both the user and the AI agent to manage self-hosted PaaS infrastructure, applications, compose stacks, and databases remotely.
-
-### What is Included:
-1. **Developer Tools**:
-   - `@dokploy/cli`: Official Dokploy CLI (`dokploy`) providing 400+ commands auto-generated from Dokploy OpenAPI specs for complete server management.
-   - `@dokploy/mcp`: Official Dokploy Model Context Protocol server exposing 500+ tools across 49 categories directly to AI agents.
-
-2. **Pre-configured Dokploy MCP Server**:
-   - Pre-configured in `~/.gemini/config/mcp_config.json`.
-   - Enables the AI agent to autonomously:
-     - Deploy, restart, and inspect web applications and compose stacks.
-     - Provision and manage databases (PostgreSQL, MySQL, MariaDB, MongoDB, Redis).
-     - Query deployment history, logs, domain status, and server health.
-
-3. **Packaged Antigravity Skill**:
-   - `dokploy`: Located in `~/.gemini/config/skills/dokploy/SKILL.md`. Automatically guides the AI agent with command syntax, `--json` formatting, environment configuration, and diagnostic workflows.
-
-4. **Global Agent Guidelines (`AGENTS.md`)**:
-   - Enforces structured JSON output (`dokploy <group> <action> --json`), non-interactive authentication, pre-flight verification (`dokploy verify`), and secret safety (`.dokploy` gitignore).
-
-5. **Instant CLI Authentication**:
-   - Provide `DOKPLOY_URL` and `DOKPLOY_API_KEY` in `docker-compose.yml` or container environment.
-   - The container automatically authenticates the CLI on startup and persists configuration in the volume, enabling immediate command execution without manual login.
-
----
-
-## 🌐 Browserless MCP Integration
-
-The container provides built-in integration with the official hosted **Browserless Model Context Protocol (MCP) server** ([documentation](https://docs.browserless.io/mcp/browserless-mcp-server/setup)) for cloud browser automation, scraping, and web auditing:
-
-1. **Pre-configured Hosted MCP Server**:
-   - Pre-configured in `~/.gemini/config/mcp_config.json` pointing to `https://mcp.browserless.io/mcp`.
-   - Bridges communication over stdio using `browserless-mcp` (powered by `mcp-remote`).
-   - Exposes 14 tools to the AI agent across three categories:
-     - **Browser Agent**: Stateful browser agent (`browserless_agent`) driving multi-turn sessions (clicks, typing, navigation, DOM snapshots).
-     - **REST API Tools**: Fast single-turn execution for `browserless_smartscraper` (cascading scraping with CAPTCHA solving), `browserless_function` (custom Puppeteer JS execution), `browserless_export` (PDFs, screenshots, offline HTML/ZIP), `browserless_search`, `browserless_map` (sitemaps/links), and `browserless_performance` (Lighthouse audits).
-     - **Account Tools**: Read-only observability for `browserless_account`, `browserless_usage`, `browserless_logs`, and `browserless_sessions`.
-
-2. **Authentication Options**:
-   - **API Token**: Set `BROWSERLESS_TOKEN` (or `BROWSERLESS_API_KEY`) in your environment. The bridge automatically sends `Authorization: Bearer <token>` without requiring OAuth prompts.
-   - **OAuth Sign-in**: If no token is provided, the hosted server initiates standard Browserless account OAuth.
-   - **Regional Routing**: Configure `BROWSERLESS_API_URL` to route requests to European endpoints (`https://production-lon.browserless.io` or `https://production-ams.browserless.io`).
-
-3. **Packaged Antigravity Skill**:
-   - `browserless`: Located in `~/.gemini/config/skills/browserless/SKILL.md`. Automatically guides the AI agent on tool selection, stateful session handling (`keepSessionAlive: true`), unit conservation, and scraping strategies.
-
-4. **Global Agent Guidelines (`AGENTS.md`)**:
-   - Enforces best practices for tool selection hierarchy, session lifecycle closure, and credential protection.
-
----
-
-## 🔍 Built-in REA (Reverse Engineer Anything) Tools, Skills & MCP Integration
-
-The container provides native out-of-the-box support for **[REA](https://rea.tools)** ([`morluto/rea`](https://github.com/morluto/rea)), enabling the AI agent to deconstruct, trace, and recreate functionality from compiled software, JavaScript/Electron bundles, and binary artifacts without source code.
-
-### What is Included:
-1. **Developer Tools**:
-   - `rea-agents`: Official REA CLI suite for direct static inspection, unpacking, and reverse engineering analysis.
-   - Pre-installed globally in the container for immediate access from the Web Terminal and automated scripts.
-
-2. **Pre-configured REA MCP Server**:
-   - Pre-configured in `~/.gemini/config/mcp_config.json` via `rea-agents`.
-   - Empowers the AI agent to:
-     - Analyze unpacked JavaScript and Electron applications (`.asar`, preload scripts, IPC channels, sourcemaps).
-     - Inspect package container structures (ZIP, ASAR, APK, IPA).
-     - Query symbol references, strings, and structures in native binary artifacts.
-
-3. **Packaged Antigravity Skill**:
-   - `rea`: Located in `~/.gemini/config/skills/rea/SKILL.md`. Automatically guides the AI agent with extraction recipes, command syntax (`npx -y rea-agents@latest analyze-javascript-application ... --json`), and the three-stage *Decompile $\rightarrow$ Understand $\rightarrow$ Recreate* workflow.
-
-4. **Global Agent Guidelines (`AGENTS.md`)**:
-   - Enforces structured JSON output (`--json`), Evidence v2 standards (explicit confidence ratings and verified facts), clean-room reimplementation, and safe workspace practices.
+- **Virtual Keyboard Resizing**: Injects `interactive-widget=resizes-content`
+  into the viewport `<meta>` tag and dynamically syncs the visual viewport
+  height (`--visual-viewport-height`) via the `VisualViewport` API. Prevents
+  on-screen virtual keyboards on mobile devices (e.g., Android Chrome) from
+  covering the prompt text entry box, smoothly scrolling the active input into
+  view.
+- **Foldable Unfolded 50/50 Split**: Detects foldable devices in unfolded mode
+  (e.g., Google Pixel Fold, Samsung Galaxy Z Fold) and configures the desktop
+  split-pane layout so projects and conversation history occupy the left 50%
+  and active conversation/chat occupies the right 50%.
+- **Workspace Tools Menu Placement**: Cleanly positions the Workspace Tools
+  navigation group (Sidecar Manager, Custom Models, Web IDE, Host Terminal)
+  directly under the Customizations section in the sidebar navigation.
+- **Top-Right Search & Sidebar Toggle Alignment**: Pushes the conversation
+  search and hide-sidebar toggle buttons to the top right corner of the
+  floating sidebar window card, keeping application branding separated on
+  the left.
+- **Sentence Case & Mobile Autocorrect**: Automatically sets and preserves
+  `autocapitalize="sentences"`, `autocorrect="on"`, `spellcheck="true"`, and
+  `autocomplete="on"` on the message input box so Android and mobile virtual
+  keyboards capitalize new sentences and automatically replace typos.
+- **Gemini-Style Floating Window Sidebar**: Wraps the sidebar navigation in
+  a floating frosted glass card featuring rounded corners, subtle border,
+  background blur (`backdrop-filter`), layered drop shadows, and soft ambient
+  backdrop lighting when displayed alongside conversations in desktop or
+  unfolded modes (while retaining native full-width styling on mobile).
+- **Clean Application Branding**: Strips `" CLI"` from the browser tab's
+  `<title>`, top-left header branding, and runtime `productName`, presenting a
+  clean, unified `"Antigravity"` title across the interface.
+- **Touch-Friendly Sidebar Scrolling**: Intercepts accidental drag-and-drop
+  conversation reordering on touch interactions and foldable displays, ensuring
+  smooth list scrolling while preserving desktop mouse-and-keyboard reordering.
+- **Custom User Styles**: Add any custom CSS styling directly to
+  `proxy/custom.css`. Styles are served with `no-cache` headers for immediate
+  application.
 
 ---
 
@@ -431,23 +307,43 @@ To disable blocking and allow all telemetry, set `BLOCK_TELEMETRY=false` in your
 
 ---
 
-## 🛠️ Building & Pushing the Container
- 
-The container image is automatically built and published to GitHub Container Registry on pushes to `main`:
+## 📦 Image Variants (`latest` vs `slim`)
+
+`antigravity-docker` provides two image targets from the same multi-stage
+`Dockerfile`:
+
+| Tag | Target | Uncompressed Size | Included |
+| :--- | :--- | :--- | :--- |
+| `jklinker/antigravity:latest` | `full` *(default)* | ~2.1 GB | Antigravity CLI (`agy`), Node.js 26 (`npm`, `pnpm`, `yarn`, `bun`), Python 3 (`uv`, `poetry`, `pipenv`, `virtualenv`, `pip`), C/C++ build toolchain (`build-essential`, `-dev` headers), interactive shells/editors (`zsh`, `tmux`, `vim`, `nano`), VS Code Web IDE (`code-server`), and Host Web Terminal (`ttyd`). |
+| `jklinker/antigravity:slim` | `slim` | ~800 MB | Core headless dev environment (~62% smaller): Antigravity CLI (`agy`), Node.js 26 (`npm`, `bun`), Python 3 (`venv`, standalone `uv`), `git`, `openssh-client`, `curl`, `jq`, and the Bun/Hono web gateway. Omits `code-server`, `ttyd`, `build-essential`, `-dev` headers, interactive editors/shells, and redundant package managers (`ENABLE_IDE=false` and `ENABLE_TERMINAL=false` by default). |
+
+---
+
+## 🛠️ Building & Pushing to Docker Hub
+
+### Build & Tag Locally
+
+**1. Build the `slim` image (`--target slim`):**
 ```bash
-docker pull ghcr.io/tamdinh/antigravity-docker:latest
+docker build --target slim -t jklinker/antigravity:slim .
 ```
 
-If you want to build the Docker image locally from source:
-
+**2. Build the full `latest` image (default `full` stage, layers on top of
+`slim`):**
 ```bash
-docker build -t ghcr.io/tamdinh/antigravity-docker:latest .
+docker build --target full -t jklinker/antigravity:latest .
+```
+
+**3. Push both tags to Docker Hub:**
+```bash
+docker push jklinker/antigravity:slim
+docker push jklinker/antigravity:latest
 ```
 
 > [!TIP]
-> **Multi-Platform Build**: To build and push for multiple architectures (such
-> as `linux/amd64` and `linux/arm64` for Apple Silicon or ARM servers) using
-> Docker Buildx:
+> **Multi-Platform Build (`linux/amd64` + `linux/arm64`)**: To build and push
+> both variants for multiple architectures using Docker Buildx:
 > ```bash
-> docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/tamdinh/antigravity-docker:latest --push .
+> docker buildx build --platform linux/amd64,linux/arm64 --target slim -t jklinker/antigravity:slim --push .
+> docker buildx build --platform linux/amd64,linux/arm64 --target full -t jklinker/antigravity:latest --push .
 > ```

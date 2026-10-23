@@ -7,17 +7,17 @@ const { execFileSync } = require('node:child_process');
 
 test('Browserless Hosted MCP Server Integration', async (t) => {
     const rootDir = path.resolve(__dirname, '..');
-    const dockerfilePath = path.join(rootDir, 'Dockerfile');
-    const entrypointPath = path.join(rootDir, 'entrypoint.sh');
-    const scriptPath = path.join(rootDir, 'scripts', 'browserless-mcp.sh');
+    const dockerfilePath = path.join(rootDir, 'Dockerfile.fork');
+    const entrypointPath = path.join(rootDir, 'scripts', 'fork', 'init.sh');
+    const scriptPath = path.join(rootDir, 'scripts', 'fork', 'browserless-mcp.sh');
     const customizationsDir = path.join(rootDir, 'customizations');
-    const dockerComposePath = path.join(rootDir, 'docker-compose.yml');
+    const dockerComposePath = path.join(rootDir, 'docker-compose.fork.yml');
 
-    await t.test('Dockerfile copies scripts/browserless-mcp.sh and sets executable permissions', () => {
+    await t.test('Fork Dockerfile installs the Browserless helper with executable permissions', () => {
         const dockerfileContent = fs.readFileSync(dockerfilePath, 'utf8');
         assert.ok(
-            dockerfileContent.includes('COPY scripts/browserless-mcp.sh /usr/local/bin/browserless-mcp'),
-            'Dockerfile must copy browserless-mcp to /usr/local/bin'
+            dockerfileContent.includes('COPY scripts/fork/ /usr/local/share/antigravity/fork/'),
+            'Fork Dockerfile must copy fork-specific helper scripts'
         );
         assert.ok(
             dockerfileContent.includes('/usr/local/bin/browserless-mcp'),
@@ -25,12 +25,12 @@ test('Browserless Hosted MCP Server Integration', async (t) => {
         );
     });
 
-    await t.test('scripts/browserless-mcp.sh exists, is executable, and constructs correct mcp-remote command', () => {
-        assert.ok(fs.existsSync(scriptPath), 'scripts/browserless-mcp.sh must exist');
-        const stats = fs.statSync(scriptPath);
-        assert.ok(stats.mode & 0o111, 'scripts/browserless-mcp.sh must have executable permissions');
-
+    await t.test('fork Browserless helper exists, is executable, and constructs correct mcp-remote command', () => {
+        assert.ok(fs.existsSync(scriptPath), 'fork Browserless helper must exist');
         const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+        const dockerfileContent = fs.readFileSync(dockerfilePath, 'utf8');
+        assert.ok(scriptContent.startsWith('#!/usr/bin/env bash'), 'fork Browserless helper must have a Bash shebang');
+        assert.ok(dockerfileContent.includes('chmod +x /usr/local/share/antigravity/fork/*.sh'), 'Fork Dockerfile must mark helper scripts executable in the image');
         assert.ok(scriptContent.includes('mcp-remote'), 'Script must invoke mcp-remote');
         assert.ok(scriptContent.includes('https://mcp.browserless.io/mcp'), 'Script must default to https://mcp.browserless.io/mcp');
         assert.ok(scriptContent.includes('BROWSERLESS_TOKEN'), 'Script must check BROWSERLESS_TOKEN');
@@ -77,11 +77,11 @@ test('Browserless Hosted MCP Server Integration', async (t) => {
         assert.ok(ruleContent.includes('https://mcp.browserless.io/mcp'), 'Rule must reference hosted server URL');
     });
 
-    await t.test('entrypoint.sh exports BROWSERLESS env vars and auto-merges browserless MCP into existing configs', () => {
+    await t.test('fork init exports Browserless env vars and configures its MCP server', () => {
         const entrypointContent = fs.readFileSync(entrypointPath, 'utf8');
-        assert.ok(entrypointContent.includes('export BROWSERLESS_TOKEN'), 'entrypoint.sh must export BROWSERLESS_TOKEN');
-        assert.ok(entrypointContent.includes('export BROWSERLESS_API_URL'), 'entrypoint.sh must export BROWSERLESS_API_URL');
-        assert.ok(entrypointContent.includes('data.mcpServers.browserless'), 'entrypoint.sh must auto-merge browserless server');
+        assert.ok(entrypointContent.includes('export BROWSERLESS_TOKEN'), 'fork init must export BROWSERLESS_TOKEN');
+        assert.ok(entrypointContent.includes('export BROWSERLESS_API_URL'), 'fork init must export BROWSERLESS_API_URL');
+        assert.ok(entrypointContent.includes('browserless: {'), 'fork init must add the Browserless MCP server');
 
         // Simulate entrypoint merge
         const tempBase = fs.mkdtempSync(path.join(os.tmpdir(), 'browserless-test-'));
@@ -121,9 +121,9 @@ test('Browserless Hosted MCP Server Integration', async (t) => {
         fs.rmSync(tempBase, { recursive: true, force: true });
     });
 
-    await t.test('docker-compose.yml exposes BROWSERLESS_TOKEN and BROWSERLESS_API_URL', () => {
+    await t.test('fork Compose override exposes Browserless environment variables', () => {
         const composeContent = fs.readFileSync(dockerComposePath, 'utf8');
-        assert.ok(composeContent.includes('BROWSERLESS_TOKEN'), 'docker-compose.yml must include BROWSERLESS_TOKEN');
-        assert.ok(composeContent.includes('BROWSERLESS_API_URL'), 'docker-compose.yml must include BROWSERLESS_API_URL');
+        assert.ok(composeContent.includes('BROWSERLESS_TOKEN'), 'docker-compose.fork.yml must include BROWSERLESS_TOKEN');
+        assert.ok(composeContent.includes('BROWSERLESS_API_URL'), 'docker-compose.fork.yml must include BROWSERLESS_API_URL');
     });
 });

@@ -4,11 +4,13 @@
 import { Hono } from 'hono';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 
 const require = createRequire(import.meta.url);
 
 const {
+    isFeatureEnabled,
     LISTEN_PORT,
     AGY_HUB_PORT,
     AUTH_PASSWORD,
@@ -31,7 +33,7 @@ const {
     SESSION_TTL_MS
 } = require('./lib/session.js');
 
-const { safeCompare } = require('./lib/security.js');
+const { safeCompare, readRequestBody } = require('./lib/security.js');
 const { isFaviconRequest, getFaviconAsset } = require('./lib/favicon.js');
 const {
     renderLoginPage,
@@ -74,7 +76,7 @@ try {
     }
 }
 
-const TRANSLATION_PORT = process.env.TRANSLATION_PORT
+const TRANSLATION_PORT = (process.env.TRANSLATION_PORT && (LISTEN_PORT === 4400 || process.env.TRANSLATION_PORT !== '4405'))
     ? parseInt(process.env.TRANSLATION_PORT, 10)
     : (LISTEN_PORT === 4400 ? 4405 : (LISTEN_PORT > 0 ? LISTEN_PORT + 5 : 4405));
 
@@ -158,6 +160,25 @@ app.use('*', async (c, next) => {
     return next();
 });
 
+// Custom CSS stylesheet serving (ALWAYS UNAUTHENTICATED)
+const CUSTOM_CSS_PATH = path.join(import.meta.dir || __dirname, 'custom.css');
+app.get('/custom.css', (c) => {
+    let cssData = '';
+    try {
+        if (fs.existsSync(CUSTOM_CSS_PATH)) {
+            cssData = fs.readFileSync(CUSTOM_CSS_PATH, 'utf8');
+        }
+    } catch (e) {}
+    return new Response(cssData, {
+        status: 200,
+        headers: {
+            'Content-Type': 'text/css; charset=utf-8',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'X-Content-Type-Options': 'nosniff'
+        }
+    });
+});
+
 // /status health check endpoint (ALWAYS UNAUTHENTICATED)
 async function handleStatus(c) {
     checkPortFile();
@@ -213,31 +234,13 @@ app.post('/__auth/login', async (c) => {
         return c.html(renderLoginPage(rateCheck.message), 429);
     }
 
-    const contentLength = parseInt(c.req.header('content-length') || '0', 10);
-    if (contentLength > 16 * 1024) {
-        return c.text('Payload Too Large', 413);
-    }
-
     let bodyText = '';
     try {
-        const reader = c.req.raw.body?.getReader();
-        if (reader) {
-            const chunks = [];
-            let total = 0;
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                total += value.length;
-                if (total > 16 * 1024) {
-                    return c.text('Payload Too Large', 413);
-                }
-                chunks.push(value);
-            }
-            bodyText = Buffer.concat(chunks).toString('utf8');
-        } else {
-            bodyText = await c.req.text();
-        }
+        bodyText = await readRequestBody(c.req.raw, 16 * 1024);
     } catch (e) {
+        if (e.message === 'Payload Too Large') {
+            return c.text('Payload Too Large', 413);
+        }
         return c.text('Bad Request', 400);
     }
 
@@ -384,6 +387,7 @@ app.post('/api/models', async (c) => {
     try {
         const body = await c.req.json();
         const saved = modelsManager.saveProvider(body);
+        ensureTranslationProxyStarted(true);
         return c.json({
             ...saved,
             apiKey: maskApiKey(saved.apiKey),
@@ -488,22 +492,34 @@ if (sidecarManager) {
 }
 
 let translationProxy = null;
-const shouldStartTranslation = Boolean(
-    TranslationProxy &&
-    process.env.ENABLE_TRANSLATION_PROXY !== 'false' &&
-    (process.env.ENABLE_TRANSLATION_PROXY === 'true' || (modelsManager && typeof modelsManager.hasEnabledModels === 'function' && modelsManager.hasEnabledModels()))
-);
+function ensureTranslationProxyStarted(forceOnEnabledModels = false) {
+    if (translationProxy && translationProxy.isRunning) return;
+    if (!TranslationProxy) return;
 
-if (shouldStartTranslation) {
-    translationProxy = new TranslationProxy({
-        port: TRANSLATION_PORT,
-        modelsManager,
-        activeConversationModels
-    });
+    const hasModels = Boolean(
+        modelsManager &&
+        typeof modelsManager.hasEnabledModels === 'function' &&
+        modelsManager.hasEnabledModels()
+    );
+    const shouldStart = forceOnEnabledModels
+        ? hasModels
+        : isFeatureEnabled(process.env.ENABLE_TRANSLATION_PROXY, true);
+
+    if (!shouldStart) return;
+
+    if (!translationProxy) {
+        translationProxy = new TranslationProxy({
+            port: TRANSLATION_PORT,
+            modelsManager,
+            activeConversationModels
+        });
+    }
     translationProxy.start().catch(err => {
         console.error('[Proxy Gateway] Warning: Translation Proxy failed to start:', err.message);
     });
 }
+
+ensureTranslationProxyStarted(false);
 
 const server = Bun.serve({
     port: LISTEN_PORT,

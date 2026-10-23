@@ -1,23 +1,10 @@
 'use strict';
 
 const http = require('node:http');
+const { FAVICON_SVG_CONTENT } = require('./favicon');
 
 // Shared Google Antigravity Vector Logo SVG
-const ANTIGRAVITY_LOGO_SVG = `<svg class="logo-svg" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M18 3L23.5 12.5H12.5L18 3Z" fill="url(#brand-grad)" />
-    <path d="M18 12L27 27.5H9L18 12Z" fill="url(#brand-grad-2)" opacity="0.9" />
-    <circle cx="18" cy="20" r="3.5" fill="#ffffff" />
-    <defs>
-        <linearGradient id="brand-grad" x1="12.5" y1="3" x2="23.5" y2="12.5" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#38bdf8" />
-            <stop offset="1" stop-color="#1a73e8" />
-        </linearGradient>
-        <linearGradient id="brand-grad-2" x1="9" y1="12" x2="27" y2="27.5" gradientUnits="userSpaceOnUse">
-            <stop stop-color="#4285f4" />
-            <stop offset="1" stop-color="#a78bfa" />
-        </linearGradient>
-    </defs>
-</svg>`;
+const ANTIGRAVITY_LOGO_SVG = FAVICON_SVG_CONTENT.replace('<svg ', '<svg class="logo-svg" ');
 
 // Shared Base CSS for all Antigravity Gateway pages (Login, Status, Sidecars, Modals, Logs)
 const BASE_PAGE_CSS = `
@@ -1253,6 +1240,25 @@ function renderPageLayout({
     </div>
 
     <script>
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMessage');
+            if (!toast || !toastMsg) return;
+            toastMsg.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3500);
+        }
+
         ${PARTICLE_SIMULATION_SCRIPT}
         ${scriptExtra}
     </script>
@@ -1596,6 +1602,16 @@ function renderSidecarsPage() {
                             <label for="commandArgs">Arguments (One per line)</label>
                             <textarea id="commandArgs" placeholder="-c&#10;echo 'Scheduled task run'" rows="2"></textarea>
                         </div>
+
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label for="commandModel">Model Tier</label>
+                            <select id="commandModel">
+                                <option value="inherit">Default</option>
+                                <option value="flash">Gemini Flash (fast, default)</option>
+                                <option value="pro">Gemini Pro (deep reasoning)</option>
+                                <option value="flash_lite">Gemini Flash Lite</option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- TAB 3: Continuous Background Worker -->
@@ -1608,6 +1624,16 @@ function renderSidecarsPage() {
                         <div class="form-group" style="margin-bottom: 16px;">
                             <label for="workerArgs">Worker Arguments (One per line)</label>
                             <textarea id="workerArgs" placeholder="worker.py&#10;--verbose" rows="2"></textarea>
+                        </div>
+
+                        <div class="form-group" style="margin-bottom: 16px;">
+                            <label for="workerModel">Model Tier</label>
+                            <select id="workerModel">
+                                <option value="inherit">Default</option>
+                                <option value="flash">Gemini Flash (fast, default)</option>
+                                <option value="pro">Gemini Pro (deep reasoning)</option>
+                                <option value="flash_lite">Gemini Flash Lite</option>
+                            </select>
                         </div>
 
                         <div class="form-group" style="margin-bottom: 16px;">
@@ -1668,25 +1694,6 @@ function renderSidecarsPage() {
         const customPromptCronGroup = document.getElementById('customPromptCronGroup');
         const promptCronExpr = document.getElementById('promptCronExpr');
         const promptProject = document.getElementById('promptProject');
-
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        function showToast(msg) {
-            const toast = document.getElementById('toast');
-            const toastMsg = document.getElementById('toastMessage');
-            if (!toast || !toastMsg) return;
-            toastMsg.textContent = msg;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3500);
-        }
 
         async function fetchProjects() {
             try {
@@ -1766,6 +1773,11 @@ function renderSidecarsPage() {
                     projChip = '<span class="chip">📁 Project: <code>' + escProjectId + '</code></span>';
                 }
 
+                let modelChip = '';
+                if (s.model) {
+                    modelChip = '<span class="chip">🧠 ' + escapeHtml(s.model) + '</span>';
+                }
+
                 let nextRunChip = '';
                 if (s.nextRun) {
                     const d = new Date(s.nextRun);
@@ -1807,6 +1819,7 @@ function renderSidecarsPage() {
                     <div class="card-chips">
                         \${detailsChip}
                         \${projChip}
+                        \${modelChip}
                         \${nextRunChip}
                     </div>
 
@@ -1960,18 +1973,22 @@ function renderSidecarsPage() {
                     promptPreset.value = 'custom';
                     customPromptCronGroup.style.display = 'block';
                     promptProject.value = s.projectId || 'outside-of-project';
+                    const modelArg = (s.args || []).find(a => typeof a === 'string' && a.startsWith('--model='));
+                    document.getElementById('promptModel').value = modelArg ? modelArg.slice('--model='.length) : 'inherit';
                     promptContent.value = s.args[s.args.length - 1] || '';
                 } else {
                     switchTab('commandTab');
                     document.getElementById('commandCronExpr').value = s.cronExpr || '*/15 * * * *';
                     document.getElementById('commandExec').value = s.args ? s.args[1] : '';
                     document.getElementById('commandArgs').value = s.args ? s.args.slice(2).join('\\n') : '';
+                    document.getElementById('commandModel').value = s.model || 'inherit';
                 }
             } else {
                 switchTab('workerTab');
                 document.getElementById('workerCommand').value = s.command || '';
                 document.getElementById('workerArgs').value = (s.args || []).join('\\n');
                 document.getElementById('workerRestartPolicy').value = s.restartPolicy || 'always';
+                document.getElementById('workerModel').value = s.model || 'inherit';
             }
 
             modal.classList.add('active');
@@ -2010,6 +2027,9 @@ function renderSidecarsPage() {
             document.getElementById('sidecarDisplayName').value = '';
             document.getElementById('sidecarDescription').value = '';
             document.getElementById('sidecarEnabled').checked = true;
+            document.getElementById('promptModel').value = 'inherit';
+            document.getElementById('commandModel').value = 'inherit';
+            document.getElementById('workerModel').value = 'inherit';
             document.getElementById('promptContent').value = '';
             promptPreset.value = '0 * * * *';
             promptCronExpr.value = '0 * * * *';
@@ -2052,6 +2072,9 @@ function renderSidecarsPage() {
                 }
 
                 payload.projectId = project;
+                if (model && model !== 'inherit') {
+                    payload.model = model;
+                }
                 const agentArgs = [cron, 'agentapi', 'new-conversation'];
                 if (model && model !== 'inherit') {
                     agentArgs.push('--model=' + model);
@@ -2064,20 +2087,24 @@ function renderSidecarsPage() {
                 const cron = document.getElementById('commandCronExpr').value.trim();
                 const exec = document.getElementById('commandExec').value.trim();
                 const rawArgs = document.getElementById('commandArgs').value.split('\\n').map(s => s.trim()).filter(Boolean);
+                const model = document.getElementById('commandModel').value;
                 if (!exec) {
                     alert('Please specify a command executable.');
                     return;
                 }
+                payload.model = (model && model !== 'inherit') ? model : null;
                 payload.args = [cron, exec, ...rawArgs];
             } else if (activeTab === 'workerTab') {
                 payload.isScheduled = false;
                 const command = document.getElementById('workerCommand').value.trim();
                 const rawArgs = document.getElementById('workerArgs').value.split('\\n').map(s => s.trim()).filter(Boolean);
                 const restartPolicy = document.getElementById('workerRestartPolicy').value;
+                const model = document.getElementById('workerModel').value;
                 if (!command) {
                     alert('Please specify a worker executable.');
                     return;
                 }
+                payload.model = (model && model !== 'inherit') ? model : null;
                 payload.command = command;
                 payload.args = rawArgs;
                 payload.restartPolicy = restartPolicy;
@@ -2128,7 +2155,7 @@ function renderSidecarsPage() {
 
 // Render Custom Models Management Dashboard Page
 function renderModelsPage() {
-    const statusPill = renderStatusPill('ready', 'Model Provider Gateway');
+    const statusPill = renderStatusPill('success', 'Model Provider Gateway');
 
     const bodyHtml = `
         <div class="models-header">
@@ -2251,6 +2278,7 @@ function renderModelsPage() {
     const scriptExtra = `
         let providersData = [];
         let stagedModels = [];
+        let editingProviderTimeout = undefined;
 
         const listContainer = document.getElementById('models-list-container');
         const modal = document.getElementById('providerModal');
@@ -2267,25 +2295,6 @@ function renderModelsPage() {
         const modelFilterContainer = document.getElementById('modelFilterContainer');
         const modelsQuickActions = document.getElementById('modelsQuickActions');
         const modelsSectionTitle = document.getElementById('modelsSectionTitle');
-
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            return String(str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
-        }
-
-        function showToast(msg) {
-            const toast = document.getElementById('toast');
-            const toastMsg = document.getElementById('toastMessage');
-            if (!toast || !toastMsg) return;
-            toastMsg.textContent = msg;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3500);
-        }
 
         function openModal(title) {
             document.getElementById('modalTitle').textContent = title;
@@ -2601,6 +2610,7 @@ function renderModelsPage() {
             providerEndpoint.value = 'https://api.anthropic.com';
             endpointHint.textContent = 'Default for Anthropic: https://api.anthropic.com';
             stagedModels = [];
+            editingProviderTimeout = undefined;
             manualModelRow.style.display = 'none';
             toggleManualBtn.firstElementChild.textContent = '+ Add unlisted / custom model manually';
             if (modelFilterInput) modelFilterInput.value = '';
@@ -2620,6 +2630,7 @@ function renderModelsPage() {
             document.getElementById('providerApiKey').value = '';
             document.getElementById('providerApiKey').placeholder = p.hasKey ? '(Key preserved, enter new key to change)' : '';
             document.getElementById('providerEnabled').checked = p.enabled !== false;
+            editingProviderTimeout = p.timeout;
             stagedModels = (p.models || []).map(m => ({ ...m }));
             manualModelRow.style.display = 'none';
             toggleManualBtn.firstElementChild.textContent = '+ Add unlisted / custom model manually';
@@ -2652,6 +2663,7 @@ function renderModelsPage() {
                 endpoint: providerEndpoint.value.trim(),
                 apiKey: document.getElementById('providerApiKey').value.trim(),
                 enabled: document.getElementById('providerEnabled').checked,
+                ...(editingProviderTimeout !== undefined ? { timeout: editingProviderTimeout } : {}),
                 models: stagedModels
             };
 

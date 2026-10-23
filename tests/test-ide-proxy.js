@@ -7,7 +7,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { buildInjectedScript } = require('../proxy/lib/ui-injection.js');
 
-test('Web IDE & Floating Dock Integration', async (t) => {
+test('Web IDE & Injected Sidebar Tools Integration', async (t) => {
     await t.test('buildInjectedScript produces valid JavaScript without un-interpolated template literals', () => {
         const script = buildInjectedScript();
         assert.doesNotThrow(() => {
@@ -16,7 +16,7 @@ test('Web IDE & Floating Dock Integration', async (t) => {
 
         assert.ok(!script.includes('${MODELS_ICON_SVG}'), 'MODELS_ICON_SVG must be interpolated');
         assert.ok(!script.includes('${EXTERNAL_ICON_SVG}'), 'EXTERNAL_ICON_SVG must be interpolated');
-        assert.ok(script.includes('agy-floating-tools-dock'), 'Injected script must include floating tools dock');
+        assert.ok(script.includes('agy-injected-tools-group'), 'Injected script must include workspace tools in the sidebar');
     });
 
     const TEST_PORT = 15580;

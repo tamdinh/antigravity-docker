@@ -64,7 +64,7 @@ test_connection() {
     echo "🔍 Testing SSH connection to GitHub (git@github.com)..."
     local output
     output=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=6 -T git@github.com 2>&1 || true)
-    
+
     if echo "$output" | grep -q "successfully authenticated"; then
         echo -e "\033[1;32m✅ GitHub SSH Authentication: SUCCESS!\033[0m"
         echo "   $output"

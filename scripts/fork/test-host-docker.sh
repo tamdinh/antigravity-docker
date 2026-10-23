@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "==================================================================="
@@ -33,9 +33,9 @@ TEST_CMD='
 '
 
 if docker compose version >/dev/null 2>&1; then
-    docker compose run --rm antigravity bash -c "$TEST_CMD"
+    docker compose -f docker-compose.yml -f docker-compose.fork.yml run --rm antigravity bash -c "$TEST_CMD"
 elif command -v docker-compose >/dev/null 2>&1; then
-    docker-compose run --rm antigravity bash -c "$TEST_CMD"
+    docker-compose -f docker-compose.yml -f docker-compose.fork.yml run --rm antigravity bash -c "$TEST_CMD"
 else
     docker run --rm ghcr.io/tamdinh/antigravity-docker:latest bash -c "$TEST_CMD"
 fi

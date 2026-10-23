@@ -1,0 +1,30 @@
+ARG UPSTREAM_IMAGE=jklinker/antigravity:latest
+FROM ${UPSTREAM_IMAGE}
+
+USER root
+
+RUN mkdir -p -m 755 /etc/apt/keyrings && \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gh && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install -g vercel eas-cli @dokploy/cli @dokploy/mcp skills add-mcp mcp-remote rea-agents && \
+    npm cache clean --force && \
+    rm -rf /root/.npm
+
+COPY customizations/ /usr/local/share/antigravity/customizations/
+COPY scripts/fork/ /usr/local/share/antigravity/fork/
+COPY scripts/fork/entrypoint.sh /usr/local/bin/fork-entrypoint.sh
+COPY scripts/fork/init.sh /usr/local/bin/fork-init.sh
+
+RUN chmod +x /usr/local/share/antigravity/fork/*.sh \
+             /usr/local/bin/fork-entrypoint.sh \
+             /usr/local/bin/fork-init.sh && \
+    ln -sf /usr/local/share/antigravity/fork/set-password.sh /usr/local/bin/set-password && \
+    ln -sf /usr/local/share/antigravity/fork/show-ssh-key.sh /usr/local/bin/show-ssh-key && \
+    ln -sf /usr/local/bin/show-ssh-key /usr/local/bin/git-key && \
+    ln -sf /usr/local/share/antigravity/fork/browserless-mcp.sh /usr/local/bin/browserless-mcp
+
+ENTRYPOINT ["/usr/local/bin/fork-entrypoint.sh"]

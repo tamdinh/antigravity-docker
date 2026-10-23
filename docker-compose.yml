@@ -1,9 +1,8 @@
+version: '3.8'
+
 services:
   antigravity:
-    image: ghcr.io/tamdinh/antigravity-docker:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: jklinker/antigravity:latest
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -14,36 +13,17 @@ services:
       - RC_NAME=server-agent
       - AGY_PORT=4400
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
-      - TRUST_PROXY=${TRUST_PROXY:-true}
       - BLOCK_TELEMETRY=true
       - ENABLE_IDE=true
       - ENABLE_TERMINAL=true
-      - TERMINAL_MODE=${TERMINAL_MODE:-auto}
-      - HOST_SSH_USER=${HOST_SSH_USER:-}
-      - HOST_SSH_HOST=${HOST_SSH_HOST:-host.docker.internal}
-      - HOST_SSH_PORT=${HOST_SSH_PORT:-22}
-      - HOST_SSH_DIR=${HOST_SSH_DIR:-}
-      - GIT_USER_NAME=${GIT_USER_NAME:-}
-      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
-      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
-      - GH_TOKEN=${GH_TOKEN:-}
-      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
-      - VERCEL_TOKEN=${VERCEL_TOKEN:-}
-      - VERCEL_ORG_ID=${VERCEL_ORG_ID:-}
-      - VERCEL_PROJECT_ID=${VERCEL_PROJECT_ID:-}
-      - EXPO_TOKEN=${EXPO_TOKEN:-}
-      - DOKPLOY_URL=${DOKPLOY_URL:-}
-      - DOKPLOY_API_KEY=${DOKPLOY_API_KEY:-}
-      - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-}
-      - BROWSERLESS_API_URL=${BROWSERLESS_API_URL:-}
+      - HOST_SSH_USER=
+      - HOST_SSH_HOST=host.docker.internal
+      - HOST_SSH_PORT=22
+      - HOST_SSH_DIR=
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - antigravity-workspace:/workspace
-      - antigravity-gemini:/home/developer/.gemini
-      - antigravity-ssh:/home/developer/.ssh
-
-volumes:
-  antigravity-workspace:
-  antigravity-gemini:
-  antigravity-ssh:
+      - ./workspace:/workspace
+      - ./data/gemini:/home/developer/.gemini
+      - ./data/ssh:/home/developer/.ssh
+      - ./data/gitconfig:/home/developer/.gitconfig

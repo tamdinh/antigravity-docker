@@ -1,0 +1,435 @@
+# Headless Antigravity Docker Agent with Remote Control, Sidecars & IDE
+
+Run Google Antigravity in **headless Remote Control mode** on your server.
+Connect to your agent from any browser via your reverse proxy or local network
+with built-in password protection, an integrated **Sidecar Manager** for
+scheduled agent prompts and autonomous workers, a **VS Code Web IDE** for
+inspecting project files, a **Host Web Terminal** for running commands on
+the host machine, and **External Model Providers** for using Anthropic,
+OpenAI, or local Ollama directly in Antigravity. The web gateway is
+powered by **Bun** and **Hono** for ultra-fast startup and low memory usage.
+
+---
+
+## 🚀 Docker Compose
+
+This fork keeps deployment overrides and fork-only tools separate from the upstream files. Start it with both Compose files:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.fork.yml up --build -d
+```
+
+The base `docker-compose.yml` and `Dockerfile` track upstream. Fork-specific build steps live in `Dockerfile.fork`, fork environment additions in `docker-compose.fork.yml`, and startup customization in `scripts/fork/`. Keep fork-only credentials in `.env`, not in committed files.
+
+To test the running image:
+
+```sh
+bash scripts/fork/test-host-docker.sh
+```
+
+---
+
+## 🚀 Deploying with Dokploy
+
+Use `docker-compose.dokploy.yml` when deploying this fork as a Compose service in Dokploy. It builds `Dockerfile.fork`, maps host port `4400` to container port `4400`, and attaches the service to Dokploy's `dokploy-network` for domain routing. The port mapping also permits direct host access; restrict it with your host firewall if you want access only through Dokploy's HTTPS proxy.
+
+1. Push this repository and the desired branch to GitHub.
+2. In Dokploy, create a **Compose** service from the Git repository, select the branch, and set the Compose file path to `docker-compose.dokploy.yml`.
+3. Add the environment variables in Dokploy before deploying. Set a strong, unique `AUTH_PASSWORD` at minimum. Add API tokens only for integrations you intend to use; do not put secrets in the Compose file or commit them to Git.
+4. Deploy the service and wait for the image build and container startup to complete.
+5. In the service's **Domains** settings, add your hostname and route it to service `antigravity`, container port `4400`, using HTTP between Dokploy's proxy and the container. Enable HTTPS/TLS in Dokploy. Dokploy should manage its generated Traefik labels for the domain; avoid committing labels tied to a specific Dokploy project or hostname. The Compose file also publishes port `4400` on the host, so use your firewall to restrict direct access if needed.
+6. Complete Google authentication once: open the running container's console in Dokploy as root and run `/usr/local/bin/entrypoint.sh setup`. Follow the sign-in URL in the console. The credentials are stored in the persistent Gemini volume; restart the service after setup if it does not reconnect automatically.
+
+The Compose file uses the external Docker network `dokploy-network`, which is the standard Dokploy proxy network. If your Dokploy host uses a different network name, update the `networks` entry in `docker-compose.dokploy.yml` to match the existing proxy network. Do not remove the `external: true` setting unless you also configure Dokploy's proxy to join the replacement network.
+
+The named volumes `antigravity-workspace`, `antigravity-gemini`, and `antigravity-ssh` survive redeployments. Back up the Gemini volume regularly; it contains OAuth credentials and agent configuration. Deleting those volumes will remove the corresponding persistent data.
+
+`DOKPLOY_URL` and `DOKPLOY_API_KEY` are optional credentials for using the Dokploy CLI/MCP tools *from inside the agent*. They are not required to deploy this service in Dokploy. Store them as Dokploy environment variables only if you want to enable that capability.
+
+---
+
+## ⚙️ Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PUID` | `1000` | User ID for the internal developer user. Set to your host user's UID to prevent file permission mismatches. |
+| `PGID` | `1000` | Group ID for the internal developer user. Set to your host group's GID to prevent file permission mismatches. |
+| `RC_NAME` | `server-agent` | Identifier name for this server instance. |
+| `AGY_PORT` | `4400` | Port exposed by the built-in web gateway. |
+| `AGY_HUB_PORT` | `4402` | Internal upstream port passed to `agy --hub-port`. |
+| `AUTH_PASSWORD` | *(empty)* | Optional password to protect web access. When set, prompts for login and remembers session for 30 days. |
+| `BLOCK_TELEMETRY` | `true` | When `true` (default), blocks Google usage telemetry, analytics, crash reporting, and diagnostic tracking domains via in-container DNS sinkholing (`0.0.0.0`) and disables OpenTelemetry exporters, while keeping Gemini model APIs and authentication working seamlessly. |
+| `ENABLE_IDE` | `true` | Set to `false` to disable the VS Code Web IDE service and hide its UI button. |
+| `ENABLE_TERMINAL` | `true` | Set to `false` to disable the Web Terminal service and hide its UI button. |
+| `TERMINAL_MODE` | `auto` | Terminal operational mode. Options: `auto`, `container` (or `local`), `host`. <br>• `auto`: When `HOST_SSH_USER` is empty, displays an interactive 3-second selection menu defaulting to the container shell; when set, connects to the host via SSH. <br>• `container`: Bypasses SSH completely and directly launches an internal Bash shell in `/workspace` with pre-installed developer tools (`agy`, `git`, `gh`, `vercel`, `node`, `python3`, `uv`, `poetry`, etc.). <br>• `host`: Strictly initiates an interactive SSH connection to the host machine. |
+| `HOST_SSH_USER` | *(empty)* | Host username used by the Web Terminal when connecting to the host machine via SSH. When left empty and `TERMINAL_MODE=auto`, defaults to the container shell. |
+| `HOST_SSH_HOST` | `host.docker.internal` | Hostname/IP used by Web Terminal to reach the host machine. |
+| `HOST_SSH_PORT` | `22` | SSH port on the host machine. |
+| `HOST_SSH_DIR` | *(host user home)* | *(Optional)* Absolute directory on the host machine to automatically `cd` into when opening the Web Terminal. |
+| `SSH_PRIVATE_KEY` | *(empty)* | *(Optional)* Raw or base64-encoded private key string automatically imported into `/home/developer/.ssh/id_ed25519` at runtime. |
+| `GIT_USER_NAME` | *(empty)* | Optional Git user.name configured globally for developer commits. |
+| `GIT_USER_EMAIL` | *(empty)* | Optional Git user.email configured globally for developer commits. |
+| `GH_TOKEN` / `GITHUB_TOKEN` | *(empty)* | Optional GitHub Personal Access Token for GitHub CLI (`gh`). Automatically authenticates `gh` commands without manual login. |
+| `VERCEL_TOKEN` | *(empty)* | Optional Vercel API Token for Vercel CLI deployments. |
+| `VERCEL_ORG_ID` | *(empty)* | *(Optional)* Vercel Team/Organization ID for team-scoped deployments. |
+| `VERCEL_PROJECT_ID` | *(empty)* | *(Optional)* Vercel Project ID to link deployments to a specific project. |
+| `EXPO_TOKEN` | *(empty)* | *(Optional)* Expo Access Token for EAS Cloud builds, submissions, and OTA updates without interactive login. |
+| `DOKPLOY_URL` | *(empty)* | *(Optional)* Dokploy server URL (e.g. `https://panel.dokploy.com` or `http://<ip>:3000`) for remote server management. |
+| `DOKPLOY_API_KEY` | *(empty)* | *(Optional)* Dokploy API Key for non-interactive Dokploy CLI and Dokploy MCP authentication. |
+| `BROWSERLESS_TOKEN` | *(empty)* | *(Optional)* Browserless API Token for Browserless hosted MCP server (`https://mcp.browserless.io/mcp`). Enables passwordless browser automation without OAuth. |
+| `BROWSERLESS_API_URL` | *(empty)* | *(Optional)* Custom or regional Browserless endpoint (e.g. `https://production-lon.browserless.io` or self-hosted). Defaults to US West (`https://production-sfo.browserless.io`). |
+| `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
+| `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
+| `CUSTOM_MODEL_TIMEOUT_SECONDS` | `600` | Optional global timeout in seconds for external model completion requests (default: 10 minutes). |
+| `CUSTOM_MODEL_TIMEOUT_MS` | *(empty)* | Optional global timeout in milliseconds (overrides `CUSTOM_MODEL_TIMEOUT_SECONDS`). |
+
+### Volumes
+
+| Volume | Container Path | Description |
+| :--- | :--- | :--- |
+| `<location-of-projects>` | `/workspace` | Host directory where your Git repositories and codebases live. |
+| `<location-of-config>` | `/home/developer/.gemini` | Host directory where Antigravity OAuth tokens, project configs, and sidecar definitions persist. |
+| `<location-of-ssh>` | `/home/developer/.ssh` | *(Recommended)* Host directory persisting container-dedicated SSH keys and configs. |
+| `<location-of-gitconfig>` | `/home/developer/.gitconfig` | *(Optional)* Host file persisting container Git configuration. |
+
+---
+
+## 🔑 Setup & Authentication
+
+### Step 1: One-Time Google Authentication
+Run the interactive setup inside the container:
+
+**Via Docker Compose:**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fork.yml run --rm antigravity setup
+```
+
+For standalone Docker usage, first build `Dockerfile.fork`, then run the resulting image with the required persistent volumes and environment variables.
+
+1. Open the Google sign-in URL shown in the terminal.
+2. Sign in to your Google Account to authorize Antigravity.
+3. Your OAuth token is automatically saved into your persistent config
+   directory on the host.
+
+### Step 2: Start the Agent
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fork.yml up -d
+```
+
+### Step 3: Configure Dedicated SSH Keys & Git Identity (Recommended)
+To keep your container isolated from host credentials, generate dedicated SSH
+keys and Git identity inside the container:
+
+**1. Generate dedicated SSH keypair:**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fork.yml exec antigravity ssh-keygen -t ed25519 -C "antigravity-container" -f /home/developer/.ssh/id_ed25519 -N ""
+```
+
+**2. Configure Git identity:**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fork.yml exec antigravity git config --global user.name "Your Name"
+docker compose -f docker-compose.yml -f docker-compose.fork.yml exec antigravity git config --global user.email "your.email@example.com"
+```
+
+**3. Authorize public key:**
+Display the generated public key:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.fork.yml exec antigravity cat /home/developer/.ssh/id_ed25519.pub
+```
+- **For GitHub / GitLab**: Add this public key under **Settings → SSH and GPG
+  keys** (or as a repository **Deploy Key** with write access).
+- **For Host Web Terminal**: If `ENABLE_TERMINAL=true` is enabled to run
+  commands on the host machine, append the public key to your host's
+  `~/.ssh/authorized_keys` (on Unraid, save to
+  `/boot/config/ssh/root/authorized_keys` to persist across reboots).
+
+---
+
+## 🌐 Accessing the Agent & Workspace Services
+
+Navigate to `http://<your-server-ip>:4400` in your browser (or through your
+reverse proxy). If configured, enter your `AUTH_PASSWORD` on the login screen to
+unlock your session for 30 days.
+
+Once logged in, all services are accessible directly or via the **Draggable Floating Tools Dock** (which can be dragged to any position on the screen to avoid obstructing the chat UI):
+
+| Service | Path | Description | Authentication |
+| :--- | :--- | :--- | :--- |
+| **Google Antigravity UI** | `/` | Main chat and conversation interface. Equipped with a **Draggable Floating Tools Dock** for launching workspace tools with auto-remembered screen placement. | Protected 🔒 |
+| **Custom Models** | `/models` | Web UI for configuring Anthropic, OpenAI, or local Ollama endpoints in Antigravity's model selector. | Protected 🔒 |
+| **Sidecar Manager** | `/sidecars` | Web UI for defining, scheduling, and monitoring background sidecars and recurring agent prompts. | Protected 🔒 |
+| **VS Code Web IDE** | `/ide/` | Full-featured VS Code in the browser for viewing and editing raw project files in `/workspace`. | Protected 🔒 |
+| **Web Terminal** | `/terminal/` | Web terminal running interactive container Bash sessions (`/workspace`) or SSH sessions to the host machine (configurable via `TERMINAL_MODE`). | Protected 🔒 |
+| **Health & Service Status** | `/status` | Real-time health check endpoint for monitoring service uptime. | **Public / Unauthenticated** 🟢 |
+
+---
+
+## 🧠 External Model Providers (Anthropic, OpenAI, Ollama)
+
+`antigravity-docker` includes native support for integrating external model
+providers directly into Antigravity's primary agent harness (terminal sandbox,
+file diff engine, live artifacts, and subagents).
+
+Access the configuration page by clicking **Custom Models** in the left
+navigation pane of the Antigravity UI or navigating directly to `/models`.
+
+### Supported Providers & Protocols:
+- **Anthropic Messages API**: Connect Anthropic models via your Anthropic
+  API key (`sk-ant-...`). Thinking blocks stream directly into
+  Antigravity's collapsible Thoughts drawer.
+- **OpenAI & OpenAI-Compatible Endpoints**: Connect official OpenAI models
+  or compatible self-hosted endpoints such as local Ollama, vLLM, or
+  DeepSeek.
+
+### Key Features:
+- **Dynamic Dropdown Injection**: Enabled external models are automatically
+  injected into Antigravity's model selector without DOM scraping or browser
+  extensions.
+- **Thinking Level Expansion**: Models configured with thinking capability
+  automatically expand into **Low**, **Medium**, and **High** thinking levels
+  in the UI model picker. Antigravity groups them under the base model name
+  with an interactive effort flyout, mapping the selection to Anthropic token
+  budgets or OpenAI reasoning effort.
+- **Transparent Reverse Proxy**: Standard Gemini models pass directly through
+  to Google CloudCode with zero translation overhead or latency penalty.
+- **Instant Fallback**: If an external provider key expires or rate limits,
+  switch to any standard Gemini model in the dropdown for immediate,
+  zero-downtime execution.
+- **Encrypted Local Persistence**: External endpoints and credentials are
+  persisted in `~/.gemini/config/custom_models.json` on the mounted volume.
+  API keys are securely masked in the web UI.
+
+---
+
+## 🤖 Sidecar Manager
+
+The built-in **Sidecar Manager** allows you to schedule recurring agent prompts
+(e.g., hourly PR triage, daily summaries) and run background workers directly
+alongside your Antigravity container.
+
+Access it by clicking **Sidecar Manager** in the floating tools dock of the
+Antigravity UI or navigating directly to `/sidecars`.
+
+### Features:
+- **Scheduled Agent Prompts**: Define prompts that run automatically on a
+  standard 5-field cron schedule (e.g. `0 * * * *`, `0 9 * * 1-5`) using
+  `agentapi new-conversation` targeted to specific projects.
+- **Continuous Workers**: Run long-running daemons or background scripts with
+  automatic process supervision and configurable restart policies (`always`,
+  `on-failure`, `never`).
+- **Interactive Management**: Toggle sidecars on or off in real-time, trigger
+  manual runs immediately with one click, view live stdout/stderr logs, and edit
+  configurations.
+- **Plugin Sidecars & Binaries**: Automatically discovers sidecars packaged
+  within plugins (`<plugin folder>/sidecars/<sidecar name>/sidecar.json`),
+  namespacing them as `<plugin-name>/<sidecar-name>`. Adjacent executable
+  binaries and companion scripts residing beside `sidecar.json` can be executed
+  directly via relative paths or command name (automatically prepended to
+  `PATH`).
+- **Spec-Compliant Persistence**: Sidecar configurations are saved to
+  `~/.gemini/config/sidecars/<id>/sidecar.json` and enabled states are stored in
+  `~/.gemini/config/config.json`.
+- **Comprehensive Logging**: Sidecar output is written to
+  `~/.gemini/antigravity/sidecar_data/<id>/logs/` and runtime events appear
+  directly in `docker compose logs` for debugging.
+
+---
+
+## ▲ Built-in Vercel Tools, Skills & MCP Integration
+
+The container comes with native, out-of-the-box support for the complete **Vercel Ecosystem** based on official [Vercel LLM Documentation](https://vercel.com/docs/llms-full.txt), empowering the AI agent to understand, deploy, debug, and optimize applications seamlessly on Vercel.
+
+### What is Included:
+1. **Developer Tools**:
+   - `vercel`: Official Vercel CLI for deployments, project linking, domain inspection, and secrets management.
+   - `skills`: The open agent skills ecosystem CLI from Vercel Labs (`skills.sh`).
+   - `add-mcp`: Tool for discovering and configuring Model Context Protocol servers.
+   - `mcp-remote`: Transport bridge for connecting to remote MCP endpoints over stdio.
+
+2. **Pre-configured Vercel MCP Server**:
+   - The official Vercel Model Context Protocol server (`https://mcp.vercel.com`) is pre-configured in `~/.gemini/config/mcp_config.json`.
+   - Gives the AI agent direct access to:
+     - `search_vercel_documentation`: Official docs search.
+     - `list_projects`, `get_project`: Inspect projects and settings.
+     - `list_deployments`, `get_deployment`, `get_deployment_events`: Diagnostic logs for builds and runtime errors.
+     - `query_web_analytics`: Web Analytics queries.
+     - `check_domain_status`, `check_domain_availability`: Custom domain management.
+
+3. **Packaged Antigravity Skills**:
+   The agent automatically discovers and leverages modular skills located in `~/.gemini/config/skills/`:
+   - `vercel-deploy`: Automated preview and production deployments with non-interactive flags (`vercel --prod --yes`).
+   - `vercel-cli`: Comprehensive CLI management guide for linking, environment variables (`vercel env pull/add`), and domains.
+   - `vercel-react-best-practices`: Performance optimization guidelines (RSC boundaries, dynamic imports, bundle size, Core Web Vitals).
+   - `next-best-practices`: Next.js App Router conventions, Cache Components (`use cache`, `cacheLife`, `cacheTag`), and Partial Prerendering (PPR).
+   - `vercel-ai-sdk`: Production AI development using Vercel AI SDK v6 (streaming, tool calling, multi-agent loops).
+   - `vercel-troubleshooting`: Step-by-step diagnostic runbook for 500 runtime errors, function timeouts, build failures, and rollbacks.
+   - `vercel-storage`: Integration recipes for Vercel Blob, Neon Postgres, and Upstash Redis.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Global rules enforce non-interactive automation, prevent accidental `.vercel` directory commits, guide proper environment variable synchronization, and ensure safe secret management.
+
+5. **Instant CLI Authentication**:
+   - Set `VERCEL_TOKEN` in your container environment or `docker-compose.yml`. The container automatically provisions `~/.vercel/auth.json` on startup so all `vercel` CLI commands are pre-authenticated without interactive login prompts.
+
+---
+
+## 📱 Built-in Expo & EAS Mobile Development Integration
+
+The container provides full-stack mobile development support for **React Native, Expo, and EAS (Expo Application Services)**, turning your headless agent into a complete mobile development workstation without requiring local macOS, Xcode, or Android SDK installations.
+
+### Why EAS in Docker?
+- **Cloud Builds**: Heavy native compilation for iOS (`.ipa`) and Android (`.aab` / `.apk`) is offloaded to Expo Cloud via `eas build --platform all`. Docker remains lightweight while building real native apps.
+- **Remote Testing via Tunneling**: Run `npx expo start --tunnel` to generate a secure QR code in the Web Terminal that can be scanned by physical iOS/Android devices anywhere in the world.
+- **EAS Updates (OTA)**: Push instant bug fixes directly to user devices via `eas update` without waiting for App Store or Google Play review cycles.
+
+### What is Included:
+1. **Developer Tools**:
+   - `eas-cli`: Official CLI for EAS cloud builds, submissions, and credentials management.
+   - `npx expo`: Bundler, dev client, config plugin generator, and dependency alignment (`npx expo install --fix`).
+
+2. **Pre-configured Expo MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json`.
+   - Allows the AI agent to search official Expo documentation, monitor EAS cloud build progress, inspect build logs, and debug native configurations.
+
+3. **Packaged Mobile Skills**:
+   Discovered automatically under `~/.gemini/config/skills/`:
+   - `eas-build-and-deploy`: Setting up `eas.json`, non-interactive cloud builds (`eas build --platform all --non-interactive`), and store submission (`eas submit`).
+   - `expo-router-best-practices`: Universal file-based routing for mobile apps (Stack, Tabs, Modals, Drawer).
+   - `eas-update`: Over-the-air updates, branch/channel management, and instant rollbacks.
+   - `expo-troubleshooting`: Diagnosing EAS build failures, native config plugins in `app.json`, and credentials signing.
+
+4. **Authentication**:
+   - Provide `EXPO_TOKEN` in `docker-compose.yml` to enable non-interactive cloud builds and submissions.
+
+---
+
+## 🐳 Built-in Dokploy CLI, Skills & MCP Remote Management
+
+The container integrates native support for **[Dokploy](https://github.com/Dokploy/dokploy)** (and the official **[Dokploy CLI](https://github.com/Dokploy/cli)**), allowing both the user and the AI agent to manage self-hosted PaaS infrastructure, applications, compose stacks, and databases remotely.
+
+### What is Included:
+1. **Developer Tools**:
+   - `@dokploy/cli`: Official Dokploy CLI (`dokploy`) providing 400+ commands auto-generated from Dokploy OpenAPI specs for complete server management.
+   - `@dokploy/mcp`: Official Dokploy Model Context Protocol server exposing 500+ tools across 49 categories directly to AI agents.
+
+2. **Pre-configured Dokploy MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json`.
+   - Enables the AI agent to autonomously:
+     - Deploy, restart, and inspect web applications and compose stacks.
+     - Provision and manage databases (PostgreSQL, MySQL, MariaDB, MongoDB, Redis).
+     - Query deployment history, logs, domain status, and server health.
+
+3. **Packaged Antigravity Skill**:
+   - `dokploy`: Located in `~/.gemini/config/skills/dokploy/SKILL.md`. Automatically guides the AI agent with command syntax, `--json` formatting, environment configuration, and diagnostic workflows.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Enforces structured JSON output (`dokploy <group> <action> --json`), non-interactive authentication, pre-flight verification (`dokploy verify`), and secret safety (`.dokploy` gitignore).
+
+5. **Instant CLI Authentication**:
+   - Provide `DOKPLOY_URL` and `DOKPLOY_API_KEY` in `docker-compose.yml` or container environment.
+   - The container automatically authenticates the CLI on startup and persists configuration in the volume, enabling immediate command execution without manual login.
+
+---
+
+## 🌐 Browserless MCP Integration
+
+The container provides built-in integration with the official hosted **Browserless Model Context Protocol (MCP) server** ([documentation](https://docs.browserless.io/mcp/browserless-mcp-server/setup)) for cloud browser automation, scraping, and web auditing:
+
+1. **Pre-configured Hosted MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json` pointing to `https://mcp.browserless.io/mcp`.
+   - Bridges communication over stdio using `browserless-mcp` (powered by `mcp-remote`).
+   - Exposes 14 tools to the AI agent across three categories:
+     - **Browser Agent**: Stateful browser agent (`browserless_agent`) driving multi-turn sessions (clicks, typing, navigation, DOM snapshots).
+     - **REST API Tools**: Fast single-turn execution for `browserless_smartscraper` (cascading scraping with CAPTCHA solving), `browserless_function` (custom Puppeteer JS execution), `browserless_export` (PDFs, screenshots, offline HTML/ZIP), `browserless_search`, `browserless_map` (sitemaps/links), and `browserless_performance` (Lighthouse audits).
+     - **Account Tools**: Read-only observability for `browserless_account`, `browserless_usage`, `browserless_logs`, and `browserless_sessions`.
+
+2. **Authentication Options**:
+   - **API Token**: Set `BROWSERLESS_TOKEN` (or `BROWSERLESS_API_KEY`) in your environment. The bridge automatically sends `Authorization: Bearer <token>` without requiring OAuth prompts.
+   - **OAuth Sign-in**: If no token is provided, the hosted server initiates standard Browserless account OAuth.
+   - **Regional Routing**: Configure `BROWSERLESS_API_URL` to route requests to European endpoints (`https://production-lon.browserless.io` or `https://production-ams.browserless.io`).
+
+3. **Packaged Antigravity Skill**:
+   - `browserless`: Located in `~/.gemini/config/skills/browserless/SKILL.md`. Automatically guides the AI agent on tool selection, stateful session handling (`keepSessionAlive: true`), unit conservation, and scraping strategies.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Enforces best practices for tool selection hierarchy, session lifecycle closure, and credential protection.
+
+---
+
+## 🔍 Built-in REA (Reverse Engineer Anything) Tools, Skills & MCP Integration
+
+The container provides native out-of-the-box support for **[REA](https://rea.tools)** ([`morluto/rea`](https://github.com/morluto/rea)), enabling the AI agent to deconstruct, trace, and recreate functionality from compiled software, JavaScript/Electron bundles, and binary artifacts without source code.
+
+### What is Included:
+1. **Developer Tools**:
+   - `rea-agents`: Official REA CLI suite for direct static inspection, unpacking, and reverse engineering analysis.
+   - Pre-installed globally in the container for immediate access from the Web Terminal and automated scripts.
+
+2. **Pre-configured REA MCP Server**:
+   - Pre-configured in `~/.gemini/config/mcp_config.json` via `rea-agents`.
+   - Empowers the AI agent to:
+     - Analyze unpacked JavaScript and Electron applications (`.asar`, preload scripts, IPC channels, sourcemaps).
+     - Inspect package container structures (ZIP, ASAR, APK, IPA).
+     - Query symbol references, strings, and structures in native binary artifacts.
+
+3. **Packaged Antigravity Skill**:
+   - `rea`: Located in `~/.gemini/config/skills/rea/SKILL.md`. Automatically guides the AI agent with extraction recipes, command syntax (`npx -y rea-agents@latest analyze-javascript-application ... --json`), and the three-stage *Decompile $\rightarrow$ Understand $\rightarrow$ Recreate* workflow.
+
+4. **Global Agent Guidelines (`AGENTS.md`)**:
+   - Enforces structured JSON output (`--json`), Evidence v2 standards (explicit confidence ratings and verified facts), clean-room reimplementation, and safe workspace practices.
+
+---
+
+## 🛡️ Privacy & Telemetry Management
+
+By default, `BLOCK_TELEMETRY=true` is enabled to prevent usage telemetry,
+analytics, and diagnostic tracking from being sent back to Google while
+keeping core agent capabilities, Gemini model APIs, and authentication fully
+operational.
+
+### How it Works:
+- **In-Container DNS Sinkholing**: Telemetry hostnames are sinkholed to
+  `0.0.0.0` directly inside the container (`/etc/hosts`), resulting in
+  immediate socket rejection (`ECONNREFUSED`) with zero DNS lookup or request
+  timeout latency.
+- **Environment Opt-Outs**: Automatically exports `DO_NOT_TRACK=1`,
+  `OTEL_SDK_DISABLED=true`, `OTEL_TRACES_EXPORTER=none`,
+  `OTEL_METRICS_EXPORTER=none`, and `OTEL_LOGS_EXPORTER=none`.
+- **Allowed Traffic**: Essential authentication endpoints
+  (`accounts.google.com`, `oauth2.googleapis.com`) and Gemini AI inference APIs
+  (`cloudaicompanion.googleapis.com`, `cloudcode-pa.googleapis.com`,
+  `generativelanguage.googleapis.com`) continue to pass through unobstructed.
+- **Blocked Endpoints**: Sinkholes `firebaselogging-pa.googleapis.com`,
+  `feedback-pa.googleapis.com`, `cloudtrace.googleapis.com`,
+  `clouderrorreporting.googleapis.com`, `logging.googleapis.com`,
+  `monitoring.googleapis.com`, `telemetry.google.com`,
+  `client-telemetry.google.com`, `google-analytics.com`, and
+  `v1.telemetry.coder.com`.
+
+To disable blocking and allow all telemetry, set `BLOCK_TELEMETRY=false` in your
+`docker-compose.yml` or container environment.
+
+---
+
+## 🛠️ Building & Pushing the Container
+
+The container image is automatically built and published to GitHub Container Registry on pushes to `main`:
+```bash
+docker pull ghcr.io/tamdinh/antigravity-docker:latest
+```
+
+If you want to build the Docker image locally from source:
+
+```bash
+docker build -f Dockerfile.fork -t ghcr.io/tamdinh/antigravity-docker:latest .
+```
+
+> [!TIP]
+> **Multi-Platform Build**: To build and push for multiple architectures (such
+> as `linux/amd64` and `linux/arm64` for Apple Silicon or ARM servers) using
+> Docker Buildx:
+> ```bash
+> docker buildx build -f Dockerfile.fork --platform linux/amd64,linux/arm64 -t ghcr.io/tamdinh/antigravity-docker:latest --push .
+> ```

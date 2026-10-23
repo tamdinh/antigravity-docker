@@ -1,0 +1,31 @@
+services:
+  antigravity:
+    image: ghcr.io/tamdinh/antigravity-docker:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.fork
+    environment:
+      - TRUST_PROXY=${TRUST_PROXY:-true}
+      - TERMINAL_MODE=${TERMINAL_MODE:-auto}
+      - GIT_USER_NAME=${GIT_USER_NAME:-}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - VERCEL_TOKEN=${VERCEL_TOKEN:-}
+      - VERCEL_ORG_ID=${VERCEL_ORG_ID:-}
+      - VERCEL_PROJECT_ID=${VERCEL_PROJECT_ID:-}
+      - EXPO_TOKEN=${EXPO_TOKEN:-}
+      - DOKPLOY_URL=${DOKPLOY_URL:-}
+      - DOKPLOY_API_KEY=${DOKPLOY_API_KEY:-}
+      - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-}
+      - BROWSERLESS_API_URL=${BROWSERLESS_API_URL:-}
+    volumes:
+      - antigravity-workspace:/workspace
+      - antigravity-gemini:/home/developer/.gemini
+      - antigravity-ssh:/home/developer/.ssh
+
+volumes:
+  antigravity-workspace:
+  antigravity-gemini:
+  antigravity-ssh:

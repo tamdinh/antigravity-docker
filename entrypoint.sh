@@ -3,24 +3,8 @@ set -e
 
 DEVELOPER_USER="developer"
 GEMINI_DIR="/home/${DEVELOPER_USER}/.gemini"
-TOKEN_FILE="${GEMINI_DIR}/antigravity-cli/antigravity-oauth-token"
+TOKEN_FILE="${GEMINI_DIR}/jetski-standalone-oauth-token"
 WORKSPACE_DIR="/workspace"
-
-# Export user environment
-export HOME="/home/${DEVELOPER_USER}"
-export USER="${DEVELOPER_USER}"
-export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOPER_USER}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
-export VERCEL_TOKEN="${VERCEL_TOKEN:-}"
-export VERCEL_ORG_ID="${VERCEL_ORG_ID:-}"
-export VERCEL_PROJECT_ID="${VERCEL_PROJECT_ID:-}"
-export EXPO_TOKEN="${EXPO_TOKEN:-}"
-export DOKPLOY_URL="${DOKPLOY_URL:-${DOKPLOY_HOST:-}}"
-export DOKPLOY_API_KEY="${DOKPLOY_API_KEY:-${DOKPLOY_TOKEN:-}}"
-export BROWSERLESS_TOKEN="${BROWSERLESS_TOKEN:-${BROWSERLESS_API_KEY:-}}"
-export BROWSERLESS_API_URL="${BROWSERLESS_API_URL:-}"
-
-# Ensure root can access persistent config if needed
-ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
 
 # Instance name and target port
 INSTANCE_NAME="${RC_NAME:-server-agent}"
@@ -57,12 +41,61 @@ mkdir -p "$GEMINI_DIR/config/projects" \
          "$GEMINI_DIR/antigravity-cli/log" \
          "$GEMINI_DIR/antigravity-cli/crashes" \
          "$GEMINI_DIR/antigravity-cli/knowledge" \
-         "$GEMINI_DIR/dokploy" \
          "$WORKSPACE_DIR"
 
-# Ensure ~/.dokploy configuration directory persists in gemini volume
-if [ ! -d "/home/${DEVELOPER_USER}/.dokploy" ]; then
-    ln -sfn "$GEMINI_DIR/dokploy" "/home/${DEVELOPER_USER}/.dokploy" 2>/dev/null || true
+# Scan /workspace and register each folder as a separate project in ~/.gemini/config/projects/<UUID>.json
+# only if the projects folder is empty
+if [ -z "$(ls -A "$GEMINI_DIR/config/projects" 2>/dev/null)" ]; then
+    bun -e '
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+
+const projectsDir = process.argv[1];
+const workspaceDir = process.argv[2];
+
+fs.mkdirSync(projectsDir, { recursive: true });
+
+function registerProject(folderPath, folderName) {
+    const uri = `file://${folderPath}`;
+    const id = crypto.randomUUID();
+    const projectData = {
+        id: id,
+        name: folderName,
+        projectResources: {
+            resources: [
+                {
+                    gitFolder: {
+                        folderUri: uri,
+                        defaultBranch: "main"
+                    }
+                }
+            ]
+        },
+        settings: {},
+        updatedAt: new Date().toISOString(),
+        isWorkspaceOnly: false
+    };
+
+    fs.writeFileSync(path.join(projectsDir, `${id}.json`), JSON.stringify(projectData, null, 2), "utf8");
+    console.log(`[Project Registry] Registered project: "${folderName}" (${id})`);
+}
+
+if (fs.existsSync(workspaceDir)) {
+    const entries = fs.readdirSync(workspaceDir, { withFileTypes: true });
+    let subdirsFound = false;
+    for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "dist" && entry.name !== "build") {
+            const fullPath = path.join(workspaceDir, entry.name);
+            registerProject(fullPath, entry.name);
+            subdirsFound = true;
+        }
+    }
+    if (!subdirsFound) {
+        registerProject(workspaceDir, "workspace");
+    }
+}
+' "$GEMINI_DIR/config/projects" "$WORKSPACE_DIR"
 fi
 
 # Ensure default outside-of-project and root .json configs exist
@@ -115,180 +148,6 @@ if [ ! -f "$GEMINI_DIR/config/custom_models.json" ]; then
 EOF
 fi
 
-# Initialize Vercel & Agent Customizations (Skills, Rules, MCP config)
-CUSTOMIZATIONS_SRC="/usr/local/share/antigravity/customizations"
-[ ! -d "$CUSTOMIZATIONS_SRC" ] && CUSTOMIZATIONS_SRC="/workspace/antigravity-docker/customizations"
-[ ! -d "$CUSTOMIZATIONS_SRC" ] && CUSTOMIZATIONS_SRC="/workspace/customizations"
-
-mkdir -p "$GEMINI_DIR/config/skills" \
-         "$GEMINI_DIR/config/rules"
-
-if [ -d "$CUSTOMIZATIONS_SRC" ]; then
-    # Sync skills (copy if missing)
-    if [ -d "$CUSTOMIZATIONS_SRC/skills" ]; then
-        for s in "$CUSTOMIZATIONS_SRC/skills"/*; do
-            if [ -d "$s" ]; then
-                sname="$(basename "$s")"
-                if [ ! -d "$GEMINI_DIR/config/skills/$sname" ]; then
-                    cp -r "$s" "$GEMINI_DIR/config/skills/"
-                    echo " [Customizations] Installed skill: '$sname'"
-                fi
-            fi
-        done
-    fi
-
-    # Sync rules
-    if [ -d "$CUSTOMIZATIONS_SRC/rules" ]; then
-        for r in "$CUSTOMIZATIONS_SRC/rules"/*; do
-            if [ -f "$r" ]; then
-                rname="$(basename "$r")"
-                if [ ! -f "$GEMINI_DIR/config/rules/$rname" ]; then
-                    cp "$r" "$GEMINI_DIR/config/rules/"
-                    echo " [Customizations] Installed rule: '$rname'"
-                fi
-            fi
-        done
-    fi
-
-    # Initialize or merge mcp_config.json
-    MCP_TARGET="$GEMINI_DIR/config/mcp_config.json"
-    if [ ! -f "$MCP_TARGET" ]; then
-        if [ -f "$CUSTOMIZATIONS_SRC/mcp_config.json" ]; then
-            cp "$CUSTOMIZATIONS_SRC/mcp_config.json" "$MCP_TARGET"
-            echo " [Customizations] Initialized mcp_config.json with MCP servers"
-        fi
-    else
-        # Merge vercel, expo, dokploy, browserless MCP servers into existing mcp_config.json if not present
-        node -e '
-        const fs = require("fs");
-        const targetPath = process.argv[1];
-        try {
-            const data = JSON.parse(fs.readFileSync(targetPath, "utf8"));
-            data.mcpServers = data.mcpServers || {};
-            let updated = false;
-            if (!data.mcpServers.vercel) {
-                data.mcpServers.vercel = {
-                    command: "mcp-remote",
-                    args: ["https://mcp.vercel.com"]
-                };
-                updated = true;
-                console.log(" [Customizations] Added Vercel MCP server to existing mcp_config.json");
-            }
-            if (!data.mcpServers.expo) {
-                data.mcpServers.expo = {
-                    command: "npx",
-                    args: ["-y", "expo-mcp-server"]
-                };
-                updated = true;
-                console.log(" [Customizations] Added Expo MCP server to existing mcp_config.json");
-            }
-            if (!data.mcpServers.dokploy) {
-                data.mcpServers.dokploy = {
-                    command: "npx",
-                    args: ["-y", "@dokploy/mcp"]
-                };
-                updated = true;
-                console.log(" [Customizations] Added Dokploy MCP server to existing mcp_config.json");
-            }
-            if (!data.mcpServers.browserless) {
-                data.mcpServers.browserless = {
-                    command: "browserless-mcp",
-                    args: ["https://mcp.browserless.io/mcp"]
-                };
-                updated = true;
-                console.log(" [Customizations] Added Browserless MCP server to existing mcp_config.json");
-            }
-            if (!data.mcpServers.rea) {
-                data.mcpServers.rea = {
-                    command: "npx",
-                    args: ["-y", "rea-agents"]
-                };
-                updated = true;
-                console.log(" [Customizations] Added REA (Reverse Engineer Anything) MCP server to existing mcp_config.json");
-            }
-            if (updated) {
-                fs.writeFileSync(targetPath, JSON.stringify(data, null, 2), "utf8");
-            }
-        } catch (e) {
-            console.error(" [Customizations] Notice: Unable to auto-merge MCP config:", e.message);
-        }
-        ' "$MCP_TARGET" 2>/dev/null || true
-    fi
-fi
-
-# Scan /workspace and register each folder as a separate project in ~/.gemini/config/projects/<UUID>.json
-# only if user projects have not already been configured
-EXISTING_PROJECTS=$(find "$GEMINI_DIR/config/projects" -maxdepth 1 -name "*.json" ! -name "outside-of-project.json" ! -name ".json" 2>/dev/null | head -n 1)
-if [ -z "$EXISTING_PROJECTS" ]; then
-    bun -e '
-const fs = require("fs");
-const path = require("path");
-const crypto = require("crypto");
-
-const projectsDir = process.argv[1];
-const workspaceDir = process.argv[2];
-
-fs.mkdirSync(projectsDir, { recursive: true });
-
-// Check if projects directory is already populated
-const existingFiles = fs.readdirSync(projectsDir).filter(f => f.endsWith(".json") && f !== ".json" && f !== "outside-of-project.json");
-if (existingFiles.length > 0) {
-    process.exit(0);
-}
-
-function registerProject(folderPath, folderName) {
-    const uri = `file://${folderPath}`;
-    const id = crypto.randomUUID();
-    const projectData = {
-        id: id,
-        name: folderName,
-        projectResources: {
-            resources: [
-                {
-                    gitFolder: {
-                        folderUri: uri,
-                        defaultBranch: "main"
-                    }
-                }
-            ]
-        },
-        settings: {},
-        updatedAt: new Date().toISOString(),
-        isWorkspaceOnly: false
-    };
-
-    fs.writeFileSync(path.join(projectsDir, `${id}.json`), JSON.stringify(projectData, null, 2), "utf8");
-    console.log(`[Project Registry] Registered project: "${folderName}" (${id})`);
-}
-
-// Create outside-of-project.json default configuration
-const outsideOfProject = {
-    id: "outside-of-project",
-    name: "Outside of Project",
-    projectResources: { resources: [] },
-    settings: {},
-    updatedAt: new Date().toISOString(),
-    isWorkspaceOnly: false
-};
-fs.writeFileSync(path.join(projectsDir, "outside-of-project.json"), JSON.stringify(outsideOfProject, null, 2), "utf8");
-
-if (fs.existsSync(workspaceDir)) {
-    const entries = fs.readdirSync(workspaceDir, { withFileTypes: true });
-    let subdirsFound = false;
-    for (const entry of entries) {
-        if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules" && entry.name !== "dist" && entry.name !== "build") {
-            const fullPath = path.join(workspaceDir, entry.name);
-            registerProject(fullPath, entry.name);
-            subdirsFound = true;
-        }
-    }
-    if (!subdirsFound) {
-        registerProject(workspaceDir, "workspace");
-    }
-}
-' "$GEMINI_DIR/config/projects" "$WORKSPACE_DIR"
-fi
-
 
 # Initialize antigravity_state.pbtxt only if not already present
 STATE_FILE="$GEMINI_DIR/antigravity-cli/antigravity_state.pbtxt"
@@ -318,77 +177,17 @@ else
     fi
 fi
 
-# Bi-directionally synchronize token files if one exists
-if [ -s "$GEMINI_DIR/jetski-standalone-oauth-token" ] && [ ! -s "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" ]; then
-    mkdir -p "$GEMINI_DIR/antigravity-cli"
-    cp "$GEMINI_DIR/jetski-standalone-oauth-token" "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token"
-elif [ -s "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" ] && [ ! -s "$GEMINI_DIR/jetski-standalone-oauth-token" ]; then
-    cp "$GEMINI_DIR/antigravity-cli/antigravity-oauth-token" "$GEMINI_DIR/jetski-standalone-oauth-token"
-fi
-
 # Fix ownership and ensure read/write permissions on mounted volume
 chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$GEMINI_DIR" "/home/${DEVELOPER_USER}"
 chmod -R u+rwX,g+rwX "$GEMINI_DIR" || true
-chmod 600 "$GEMINI_DIR"/jetski-standalone-oauth-token "$GEMINI_DIR"/antigravity-cli/antigravity-oauth-token 2>/dev/null || true
 
-if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ] || ! gosu "$DEVELOPER_USER" test -w "$WORKSPACE_DIR" 2>/dev/null; then
-    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$WORKSPACE_DIR" || true
+if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ]; then
+    chown ${DEVELOPER_USER}:${DEVELOPER_USER} "$WORKSPACE_DIR" || true
 fi
 
 # Configure SSH directory, permissions, and client defaults
 SSH_DIR="/home/${DEVELOPER_USER}/.ssh"
 mkdir -p "$SSH_DIR"
-
-# 1. Import SSH Private Key from environment variables if provided
-RAW_SSH_KEY="${SSH_PRIVATE_KEY:-${GIT_SSH_KEY:-}}"
-if [ -n "$RAW_SSH_KEY" ]; then
-    if echo "$RAW_SSH_KEY" | grep -qv "BEGIN " && echo "$RAW_SSH_KEY" | base64 -d 2>/dev/null | grep -q "BEGIN "; then
-        echo "$RAW_SSH_KEY" | base64 -d > "$SSH_DIR/id_ed25519"
-    else
-        printf "%s\n" "$RAW_SSH_KEY" > "$SSH_DIR/id_ed25519"
-    fi
-    ssh-keygen -y -f "$SSH_DIR/id_ed25519" > "$SSH_DIR/id_ed25519.pub" 2>/dev/null || true
-fi
-
-# 2. Recover any keys accidentally generated in /root/.ssh
-if ls /root/.ssh/id_* 1>/dev/null 2>&1; then
-    for k in /root/.ssh/id_*; do
-        b="$(basename "$k")"
-        if [ ! -f "$SSH_DIR/$b" ]; then
-            cp "$k" "$SSH_DIR/$b"
-        fi
-    done
-fi
-
-# 3. Automatically generate a dedicated ed25519 SSH keypair if no private key exists
-HAS_SSH_KEY=false
-for k in "$SSH_DIR"/id_* "$SSH_DIR"/*.pem "$SSH_DIR"/*.key; do
-    if [ -f "$k" ]; then
-        case "$k" in
-            *.pub) ;;
-            *) HAS_SSH_KEY=true; break ;;
-        esac
-    fi
-done
-
-if [ "$HAS_SSH_KEY" = "false" ]; then
-    ssh-keygen -t ed25519 -C "antigravity-container" -f "$SSH_DIR/id_ed25519" -N "" >/dev/null 2>&1 || true
-fi
-
-# 4. Ensure public key exists for all private keys
-for k in "$SSH_DIR"/id_*; do
-    if [ -f "$k" ]; then
-        case "$k" in
-            *.pub) ;;
-            *)
-                if [ ! -f "${k}.pub" ]; then
-                    ssh-keygen -y -f "$k" > "${k}.pub" 2>/dev/null || true
-                fi
-                ;;
-        esac
-    fi
-done
-
 chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
@@ -414,19 +213,6 @@ if [ ! -f "$SSH_DIR/known_hosts" ] || ! grep -q "github.com" "$SSH_DIR/known_hos
     ssh-keyscan -t ed25519,rsa gitlab.com >> "$SSH_DIR/known_hosts" 2>/dev/null || true
     chown ${DEVELOPER_USER}:${DEVELOPER_USER} "$SSH_DIR/known_hosts" 2>/dev/null || true
     chmod 644 "$SSH_DIR/known_hosts" 2>/dev/null || true
-fi
-
-# Log the active public key to console for easy GitHub authorization
-PRIMARY_PUB_KEY=$(cat "$SSH_DIR/id_ed25519.pub" 2>/dev/null || cat "$SSH_DIR"/id_*.pub 2>/dev/null | head -n 1 || true)
-if [ -n "$PRIMARY_PUB_KEY" ]; then
-    echo "==================================================================="
-    echo " 🔑 Antigravity Git SSH Public Key:"
-    echo " $PRIMARY_PUB_KEY"
-    echo "-------------------------------------------------------------------"
-    echo " 👉 To clone/push private Git repos, add this key to your account:"
-    echo "    GitHub: https://github.com/settings/keys"
-    echo "    GitLab: https://gitlab.com/-/profile/keys"
-    echo "==================================================================="
 fi
 
 # Ensure developer ownership for .gitconfig if present
@@ -484,52 +270,7 @@ export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOP
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "$WORKSPACE_DIR" 2>/dev/null || true
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "${WORKSPACE_DIR}/*" 2>/dev/null || true
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "$GEMINI_DIR" 2>/dev/null || true
-
-# Configure Git user identity if provided via environment
-if [ -n "$GIT_USER_NAME" ]; then
-    gosu "$DEVELOPER_USER" git config --global user.name "$GIT_USER_NAME" 2>/dev/null || true
-fi
-if [ -n "$GIT_USER_EMAIL" ]; then
-    gosu "$DEVELOPER_USER" git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
-fi
-
-# Configure Vercel CLI token if provided via environment
-if [ -n "$VERCEL_TOKEN" ]; then
-    VERCEL_CONFIG_DIR="/home/${DEVELOPER_USER}/.vercel"
-    mkdir -p "$VERCEL_CONFIG_DIR"
-    cat <<EOF > "$VERCEL_CONFIG_DIR/auth.json"
-{
-  "token": "${VERCEL_TOKEN}"
-}
-EOF
-    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$VERCEL_CONFIG_DIR"
-    chmod 600 "$VERCEL_CONFIG_DIR/auth.json"
-    echo " 🟢 Vercel CLI authenticated via VERCEL_TOKEN"
-fi
-
-# Configure Expo / EAS token if provided via environment
-if [ -n "$EXPO_TOKEN" ]; then
-    EXPO_CONFIG_DIR="/home/${DEVELOPER_USER}/.expo"
-    mkdir -p "$EXPO_CONFIG_DIR"
-    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$EXPO_CONFIG_DIR"
-    echo " 🟢 Expo & EAS CLI authenticated via EXPO_TOKEN"
-fi
-
-# Configure Dokploy CLI authentication if provided via environment
-if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ]; then
-    DOKPLOY_CONFIG_DIR="/home/${DEVELOPER_USER}/.dokploy"
-    mkdir -p "$DOKPLOY_CONFIG_DIR"
-    if command -v dokploy >/dev/null 2>&1; then
-        gosu "$DEVELOPER_USER" dokploy auth -u "$DOKPLOY_URL" -t "$DOKPLOY_API_KEY" >/dev/null 2>&1 || true
-    fi
-    chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$DOKPLOY_CONFIG_DIR" "$GEMINI_DIR/dokploy" 2>/dev/null || true
-    echo " 🟢 Dokploy CLI authenticated via DOKPLOY_URL and DOKPLOY_API_KEY"
-fi
-
-# Ensure agentapi symlink is available in PATH
-if [ ! -f /usr/local/bin/agentapi ] && [ -x "/home/${DEVELOPER_USER}/.local/bin/agy" ]; then
-    ln -sf "/home/${DEVELOPER_USER}/.local/bin/agy" /usr/local/bin/agentapi 2>/dev/null || true
-fi
+gosu "$DEVELOPER_USER" git config --global --add safe.directory "$ANTIGRAVITY_DIR" 2>/dev/null || true
 
 # 5. Mode dispatch
 case "$1" in
@@ -552,53 +293,57 @@ case "$1" in
         ENABLE_IDE="${ENABLE_IDE:-true}"
         ENABLE_TERMINAL="${ENABLE_TERMINAL:-true}"
 
-        # 1. Start code-server (VS Code Web IDE) on 127.0.0.1:8080 if enabled
+        # 1. Start code-server (VS Code Web IDE) on 127.0.0.1:8080 if enabled and installed
         if [ "$ENABLE_IDE" = "true" ] || [ "$ENABLE_IDE" = "1" ] || [ "$ENABLE_IDE" = "yes" ] || [ "$ENABLE_IDE" = "on" ]; then
-            ASSETS_DIR="/usr/local/share/antigravity/assets"
-            [ ! -d "$ASSETS_DIR" ] && ASSETS_DIR="/workspace/assets"
-            [ ! -d "$ASSETS_DIR" ] && ASSETS_DIR="/workspace/antigravity-docker/assets"
-            if [ -d "$ASSETS_DIR" ]; then
-                if [ -d /usr/lib/code-server/src/browser/media ]; then
-                    cp "$ASSETS_DIR"/favicon.svg /usr/lib/code-server/src/browser/media/favicon.svg 2>/dev/null || true
-                    cp "$ASSETS_DIR"/favicon.svg /usr/lib/code-server/src/browser/media/favicon-dark-support.svg 2>/dev/null || true
-                    cp "$ASSETS_DIR"/favicon.ico /usr/lib/code-server/src/browser/media/favicon.ico 2>/dev/null || true
-                    cp "$ASSETS_DIR"/pwa-icon-192.png /usr/lib/code-server/src/browser/media/pwa-icon-192.png 2>/dev/null || true
-                    cp "$ASSETS_DIR"/pwa-icon-512.png /usr/lib/code-server/src/browser/media/pwa-icon-512.png 2>/dev/null || true
+            if command -v code-server >/dev/null 2>&1; then
+                ASSETS_DIR="/usr/local/share/antigravity/assets"
+                [ ! -d "$ASSETS_DIR" ] && ASSETS_DIR="/workspace/assets"
+                [ ! -d "$ASSETS_DIR" ] && ASSETS_DIR="/workspace/antigravity-docker/assets"
+                if [ -d "$ASSETS_DIR" ]; then
+                    if [ -d /usr/lib/code-server/src/browser/media ]; then
+                        cp "$ASSETS_DIR"/favicon.svg /usr/lib/code-server/src/browser/media/favicon.svg 2>/dev/null || true
+                        cp "$ASSETS_DIR"/favicon.svg /usr/lib/code-server/src/browser/media/favicon-dark-support.svg 2>/dev/null || true
+                        cp "$ASSETS_DIR"/favicon.ico /usr/lib/code-server/src/browser/media/favicon.ico 2>/dev/null || true
+                        cp "$ASSETS_DIR"/pwa-icon-192.png /usr/lib/code-server/src/browser/media/pwa-icon-192.png 2>/dev/null || true
+                        cp "$ASSETS_DIR"/pwa-icon-512.png /usr/lib/code-server/src/browser/media/pwa-icon-512.png 2>/dev/null || true
+                    fi
+                    if [ -d /usr/lib/code-server/lib/vscode/resources/server ]; then
+                        cp "$ASSETS_DIR"/favicon.ico /usr/lib/code-server/lib/vscode/resources/server/favicon.ico 2>/dev/null || true
+                    fi
                 fi
-                if [ -d /usr/lib/code-server/lib/vscode/resources/server ]; then
-                    cp "$ASSETS_DIR"/favicon.ico /usr/lib/code-server/lib/vscode/resources/server/favicon.ico 2>/dev/null || true
-                fi
-            fi
 
-            echo " 🟢 Starting code-server Web IDE on internal port 8080"
-            gosu "$DEVELOPER_USER" code-server \
-                --bind-addr 127.0.0.1:8080 \
-                --auth none \
-                --disable-telemetry \
-                --disable-update-check \
-                --disable-workspace-trust \
-                "$WORKSPACE_DIR" > /tmp/code-server.log 2>&1 &
+                echo " 🟢 Starting code-server Web IDE on internal port 8080"
+                gosu "$DEVELOPER_USER" code-server \
+                    --bind-addr 127.0.0.1:8080 \
+                    --auth none \
+                    --disable-telemetry \
+                    --disable-update-check \
+                    "$WORKSPACE_DIR" > /tmp/code-server.log 2>&1 &
+            else
+                echo " ⚪ Web IDE binary (code-server) not installed (slim image); forcing ENABLE_IDE=false"
+                ENABLE_IDE="false"
+            fi
         else
             echo " ⚪ Web IDE is DISABLED (ENABLE_IDE=false)"
         fi
 
-        # 2. Start ttyd (Web Terminal) on 127.0.0.1:7681 if enabled
+        # 2. Start ttyd (Web Terminal) on 127.0.0.1:7681 if enabled and installed
         if [ "$ENABLE_TERMINAL" = "true" ] || [ "$ENABLE_TERMINAL" = "1" ] || [ "$ENABLE_TERMINAL" = "yes" ] || [ "$ENABLE_TERMINAL" = "on" ]; then
-            echo " 🟢 Starting ttyd Web Terminal on internal port 7681"
-            export TERMINAL_MODE="${TERMINAL_MODE:-auto}"
-            export HOST_SSH_USER="${HOST_SSH_USER:-}"
-            export HOST_SSH_HOST="${HOST_SSH_HOST:-host.docker.internal}"
-            export HOST_SSH_PORT="${HOST_SSH_PORT:-22}"
-            export HOST_SSH_DIR="${HOST_SSH_DIR:-}"
-            gosu "$DEVELOPER_USER" ttyd \
-                -W \
-                -p 7681 \
-                -i 127.0.0.1 \
-                -b /terminal \
-                -t fontSize=14 \
-                -t fontFamily="Google Sans Code, monospace" \
-                -t theme='{"background": "#08090d", "foreground": "#f0f4fc", "cursor": "#38bdf8"}' \
-                /usr/local/bin/host-terminal.sh > /tmp/ttyd.log 2>&1 &
+            if command -v ttyd >/dev/null 2>&1; then
+                echo " 🟢 Starting ttyd Web Terminal on internal port 7681"
+                gosu "$DEVELOPER_USER" ttyd \
+                    -W \
+                    -p 7681 \
+                    -i 127.0.0.1 \
+                    -b /terminal \
+                    -t fontSize=14 \
+                    -t fontFamily="Google Sans Code, monospace" \
+                    -t theme='{"background": "#08090d", "foreground": "#f0f4fc", "cursor": "#38bdf8"}' \
+                    /usr/local/bin/host-terminal.sh > /tmp/ttyd.log 2>&1 &
+            else
+                echo " ⚪ Host Web Terminal binary (ttyd) not installed (slim image); forcing ENABLE_TERMINAL=false"
+                ENABLE_TERMINAL="false"
+            fi
         else
             echo " ⚪ Host Web Terminal is DISABLED (ENABLE_TERMINAL=false)"
         fi
@@ -607,9 +352,8 @@ case "$1" in
         export AGY_HUB_PORT="${AGY_HUB_PORT}"
         export TRANSLATION_PORT="${TRANSLATION_PORT:-4405}"
 
-        # Conditionally enable translation proxy ONLY if custom models are configured.
-        # This ensures agy talks directly to Google CloudCode when no custom models are
-        # active, so a proxy failure cannot break normal operation.
+        # Enable translation proxy by default so model tier overrides (e.g. pro -> Argon)
+        # and custom model providers work out of the box unless explicitly disabled.
         HAS_CUSTOM_MODELS="false"
         if [ -f "$GEMINI_DIR/config/custom_models.json" ]; then
             HAS_CUSTOM_MODELS="$(bun -e '
@@ -624,10 +368,16 @@ case "$1" in
             ' "$GEMINI_DIR/config/custom_models.json" 2>/dev/null || echo "false")"
         fi
 
-        if [ "$HAS_CUSTOM_MODELS" = "true" ] || [ "${ENABLE_TRANSLATION_PROXY:-false}" = "true" ]; then
-            echo " 🧠 Custom Models detected: routing inference via translation proxy on port ${TRANSLATION_PORT}"
-            export CLOUDCODE_UPSTREAM_URL="${CLOUDCODE_UPSTREAM_URL:-https://daily-cloudcode-pa.googleapis.com}"
-            export CLOUD_CODE_URL="${CLOUD_CODE_URL:-http://127.0.0.1:${TRANSLATION_PORT}}"
+        ENABLE_TRANSLATION_PROXY="${ENABLE_TRANSLATION_PROXY:-true}"
+        if [ "$ENABLE_TRANSLATION_PROXY" = "true" ] || [ "$ENABLE_TRANSLATION_PROXY" = "1" ] || [ "$ENABLE_TRANSLATION_PROXY" = "yes" ] || [ "$ENABLE_TRANSLATION_PROXY" = "on" ] || [ "$HAS_CUSTOM_MODELS" = "true" ]; then
+            if [ -n "${CLOUD_CODE_URL:-}" ] && [ "${CLOUD_CODE_URL}" != "http://127.0.0.1:${TRANSLATION_PORT}" ]; then
+                echo " 🧠 Custom CLOUD_CODE_URL specified: ${CLOUD_CODE_URL}"
+                export CLOUDCODE_UPSTREAM_URL="${CLOUDCODE_UPSTREAM_URL:-$CLOUD_CODE_URL}"
+            else
+                echo " 🧠 Translation proxy enabled on port ${TRANSLATION_PORT}"
+                export CLOUDCODE_UPSTREAM_URL="${CLOUDCODE_UPSTREAM_URL:-https://daily-cloudcode-pa.googleapis.com}"
+            fi
+            export CLOUD_CODE_URL="http://127.0.0.1:${TRANSLATION_PORT}"
             export ENABLE_TRANSLATION_PROXY="true"
         elif [ -n "${CLOUD_CODE_URL:-}" ]; then
             echo " 🧠 Custom CLOUD_CODE_URL specified: ${CLOUD_CODE_URL}"
@@ -635,7 +385,7 @@ case "$1" in
             export CLOUD_CODE_URL="http://127.0.0.1:${TRANSLATION_PORT}"
             export ENABLE_TRANSLATION_PROXY="true"
         else
-            echo " ⚪ Custom Models disabled or not configured: standard Google CloudCode active"
+            echo " ⚪ Translation proxy disabled: standard Google CloudCode active"
             unset CLOUD_CODE_URL
             export ENABLE_TRANSLATION_PROXY="false"
         fi
@@ -646,9 +396,6 @@ case "$1" in
         export HOST_SSH_USER="${HOST_SSH_USER:-}"
         export HOST_SSH_HOST="${HOST_SSH_HOST:-host.docker.internal}"
         export HOST_SSH_PORT="${HOST_SSH_PORT:-22}"
-        export HOST_SSH_DIR="${HOST_SSH_DIR:-}"
-        export TRUST_PROXY="${TRUST_PROXY:-false}"
-        export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}"
         PROXY_SCRIPT="/usr/local/bin/auth-proxy.js"
         if [ "${DEV_MODE:-false}" = "true" ] || [ "${AGY_DEV_PROXY:-false}" = "true" ] || [ -f "/workspace/antigravity-docker/proxy/lib/proxy.js" ]; then
             if [ -f "/workspace/antigravity-docker/proxy/auth-proxy.js" ]; then
@@ -661,16 +408,15 @@ case "$1" in
         fi
         gosu "$DEVELOPER_USER" bun "$PROXY_SCRIPT" &
 
-        if [ ! -s "$TOKEN_FILE" ] && [ ! -s "$GEMINI_DIR/jetski-standalone-oauth-token" ]; then
+        if [ ! -s "$TOKEN_FILE" ]; then
             echo "==================================================================="
-            echo " ⚠️  NOTICE: Antigravity OAuth Token not found at:"
-            echo " $TOKEN_FILE"
+            echo " ⚠️  NOTICE: Antigravity OAuth Token not found!"
             echo "-------------------------------------------------------------------"
             echo " The container is starting in Remote Control mode."
             echo " If this is your first run, check the logs or run the setup command:"
             echo "   docker compose run --rm antigravity setup"
             echo " Or via standalone docker run:"
-            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini ghcr.io/tamdinh/antigravity-docker:latest setup"
+            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini jklinker/antigravity:latest setup"
             echo " Or open the sign-in URL shown below in your browser."
             echo "==================================================================="
         else
@@ -689,10 +435,6 @@ case "$1" in
 
     *)
         # If user passed custom command (e.g. bash, npm, python, docker)
-        if [ "$1" = "bash" ] || [ "$1" = "zsh" ] || [ "$1" = "sh" ]; then
-            exec gosu "$DEVELOPER_USER" "$@"
-        else
-            exec gosu "$DEVELOPER_USER" "$@"
-        fi
+        exec gosu "$DEVELOPER_USER" "$@"
         ;;
 esac
