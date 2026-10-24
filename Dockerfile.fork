@@ -10,7 +10,7 @@ RUN mkdir -p -m 755 /etc/apt/keyrings && \
     apt-get update && \
     apt-get install -y --no-install-recommends gh && \
     rm -rf /var/lib/apt/lists/* && \
-    npm install -g vercel eas-cli @dokploy/cli @dokploy/mcp skills add-mcp mcp-remote rea-agents && \
+    npm install -g --allow-scripts=@anthropic-ai/claude-code vercel eas-cli @dokploy/cli @dokploy/mcp skills add-mcp mcp-remote rea-agents @anthropic-ai/claude-code && \
     npm cache clean --force && \
     rm -rf /root/.npm
 

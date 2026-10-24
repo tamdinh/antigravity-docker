@@ -14,15 +14,25 @@ export DOKPLOY_URL="${DOKPLOY_URL:-${DOKPLOY_HOST:-}}"
 export DOKPLOY_API_KEY="${DOKPLOY_API_KEY:-${DOKPLOY_TOKEN:-}}"
 export BROWSERLESS_TOKEN="${BROWSERLESS_TOKEN:-${BROWSERLESS_API_KEY:-}}"
 export BROWSERLESS_API_URL="${BROWSERLESS_API_URL:-}"
+export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
 
 mkdir -p "$GEMINI_DIR/config/projects" \
     "$GEMINI_DIR/config/skills" \
     "$GEMINI_DIR/config/rules" \
     "$GEMINI_DIR/dokploy" \
+    "$GEMINI_DIR/claude" \
     "$WORKSPACE_DIR"
 
 ln -sfn "$GEMINI_DIR" /root/.gemini 2>/dev/null || true
 ln -sfn "$GEMINI_DIR/dokploy" "/home/${DEVELOPER_USER}/.dokploy" 2>/dev/null || true
+ln -sfn "$GEMINI_DIR/claude" "/home/${DEVELOPER_USER}/.claude" 2>/dev/null || true
+if [ ! -f "$GEMINI_DIR/claude.json" ] && [ -f "/home/${DEVELOPER_USER}/.claude.json" ]; then
+    cp "/home/${DEVELOPER_USER}/.claude.json" "$GEMINI_DIR/claude.json" 2>/dev/null || true
+fi
+if [ -f "$GEMINI_DIR/claude.json" ]; then
+    ln -sfn "$GEMINI_DIR/claude.json" "/home/${DEVELOPER_USER}/.claude.json" 2>/dev/null || true
+fi
+chown -R "${DEVELOPER_USER}:${DEVELOPER_USER}" "$GEMINI_DIR/claude" "$GEMINI_DIR/claude.json" 2>/dev/null || true
 
 if [ ! -f "$GEMINI_DIR/config/config.json" ]; then
     cat > "$GEMINI_DIR/config/config.json" <<EOF

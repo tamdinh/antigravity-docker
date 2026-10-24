@@ -80,6 +80,7 @@ The named volumes `antigravity-workspace`, `antigravity-gemini`, and `antigravit
 | `DOKPLOY_API_KEY` | *(empty)* | *(Optional)* Dokploy API Key for non-interactive Dokploy CLI and Dokploy MCP authentication. |
 | `BROWSERLESS_TOKEN` | *(empty)* | *(Optional)* Browserless API Token for Browserless hosted MCP server (`https://mcp.browserless.io/mcp`). Enables passwordless browser automation without OAuth. |
 | `BROWSERLESS_API_URL` | *(empty)* | *(Optional)* Custom or regional Browserless endpoint (e.g. `https://production-lon.browserless.io` or self-hosted). Defaults to US West (`https://production-sfo.browserless.io`). |
+| `ANTHROPIC_API_KEY` | *(empty)* | *(Optional)* Anthropic API Key for external Anthropic models in Antigravity and headless Claude Code CLI (`claude`). |
 | `TRUST_PROXY` | `false` | When `true`, trusts `X-Forwarded-For` from reverse proxies for rate limiting. |
 | `ALLOWED_ORIGINS` | *(empty)* | Optional comma-separated list of allowed CORS origins. |
 | `CUSTOM_MODEL_TIMEOUT_SECONDS` | `600` | Optional global timeout in seconds for external model completion requests (default: 10 minutes). |
@@ -379,6 +380,36 @@ The container provides native out-of-the-box support for **[REA](https://rea.too
 
 4. **Global Agent Guidelines (`AGENTS.md`)**:
    - Enforces structured JSON output (`--json`), Evidence v2 standards (explicit confidence ratings and verified facts), clean-room reimplementation, and safe workspace practices.
+
+---
+
+## 🤖 Anthropic Claude Code CLI Integration
+
+The container includes Anthropic's **[Claude Code CLI](https://github.com/anthropics/claude-code)** (`@anthropic-ai/claude-code`), an agentic coding assistant that lives in your terminal, understands your codebase, and helps you code faster through natural language.
+
+### What is Included:
+1. **Pre-installed CLI (`claude`)**:
+   - Built into the container image and available system-wide in `PATH`.
+   - Access it interactively via the **Host Web Terminal** (`/terminal/`) or **VS Code Web IDE Terminal** (`/ide/`).
+   - Supports background agent management (`claude agents`, `claude attach <id>`) and MCP tool integration (`claude mcp`).
+
+2. **Automated & Non-Interactive Commands**:
+   - Run scripted queries or subagent coding tasks headlessly with `-p` / `--print`:
+     ```bash
+     claude -p "Explain how authentication works in this repository"
+     ```
+   - Pipe diffs and command outputs directly into Claude:
+     ```bash
+     git diff | claude -p "Review this diff for security or logic issues"
+     ```
+
+3. **Persistent Authentication & State**:
+   - Configured to persist auth tokens, sessions, and history in `~/.gemini/claude` and `~/.gemini/claude.json` across container restarts.
+   - Automatically authenticates headless runs when `ANTHROPIC_API_KEY` is provided in `.env` or Compose environment variables.
+
+4. **Packaged Antigravity Skill & Agent Guidelines**:
+   - `claude-code`: Located in `~/.gemini/config/skills/claude-code/SKILL.md` for guided multi-agent pairing and CLI execution.
+   - Updated `AGENTS.md` rules with non-interactive CLI patterns and workspace safety.
 
 ---
 

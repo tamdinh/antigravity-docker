@@ -165,4 +165,30 @@ When performing reverse engineering, binary analysis, application extraction, or
 - **Distinguish Facts from Inferences**: State clearly what is verified from code analysis versus what is inferred or unknown.
 - **Clean-Room Code**: Recreate functionality using idiomatic, clean code conforming to the project's tech stack and standards. Do not directly copy disassembled or proprietary strings.
 
+---
+
+# Claude Code CLI Guidelines for AI Agents
+
+When utilizing or automating Anthropic's Claude Code CLI (`claude`):
+
+## 1. Non-Interactive CLI Automation
+- For automated, single-prompt or scripted execution, pass the `-p` (or `--print`) flag:
+  `claude -p "Explain the project structure"`
+- In non-interactive or batch scripts where human confirmation prompts would hang, use `--dangerously-skip-permissions` only in sandboxed/container environments where execution is explicitly safe.
+- To resume conversations: `claude --resume [session-id]`
+- For piping output or JSON handling: use `claude -p "..." --output json` (or redirect stdout).
+
+## 2. Authentication & Environment Configuration
+- Claude Code automatically recognizes `ANTHROPIC_API_KEY`. When this environment variable is provided via Docker Compose or `.env`, headless commands execute without interactive browser login.
+- For interactive OAuth login in terminal sessions, run `claude` (or `claude login`) and follow the browser authentication flow.
+- Token and session states persist in `~/.claude` and `~/.claude.json`, which are mapped to persistent storage.
+
+## 3. Security & Clean Workspace
+- Never commit `~/.claude.json`, `.claude/`, or API keys into version control. Ensure `.gitignore` includes:
+  ```gitignore
+  .claude
+  .claude.json
+  ```
+
+
 

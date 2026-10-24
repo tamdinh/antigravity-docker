@@ -21,6 +21,7 @@ services:
       - DOKPLOY_API_KEY=${DOKPLOY_API_KEY:-}
       - BROWSERLESS_TOKEN=${BROWSERLESS_TOKEN:-}
       - BROWSERLESS_API_URL=${BROWSERLESS_API_URL:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     volumes:
       - antigravity-workspace:/workspace
       - antigravity-gemini:/home/developer/.gemini
