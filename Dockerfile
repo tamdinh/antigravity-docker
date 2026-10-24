@@ -66,7 +66,9 @@ ENV HOME=/home/${USERNAME}
 WORKDIR /home/${USERNAME}
 
 RUN mkdir -p /home/${USERNAME}/.local/bin && \
-    curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /home/${USERNAME}/.local/bin
+    curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /home/${USERNAME}/.local/bin && \
+    git config --global user.name "Tam Dinh" && \
+    git config --global user.email "tamdinh@gmail.com"
 
 # Add ~/.local/bin and package manager binaries to PATH
 ENV PATH="/home/${USERNAME}/.gemini/antigravity-cli/bin:/home/${USERNAME}/.local/bin:/home/${USERNAME}/.cargo/bin:/home/${USERNAME}/.local/share/pnpm:${PATH}"

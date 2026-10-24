@@ -272,6 +272,16 @@ gosu "$DEVELOPER_USER" git config --global --add safe.directory "${WORKSPACE_DIR
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "$GEMINI_DIR" 2>/dev/null || true
 gosu "$DEVELOPER_USER" git config --global --add safe.directory "$ANTIGRAVITY_DIR" 2>/dev/null || true
 
+# Configure git user identity if specified via environment variables
+GIT_USER_NAME="${GIT_USER_NAME:-Tam Dinh}"
+GIT_USER_EMAIL="${GIT_USER_EMAIL:-tamdinh@gmail.com}"
+if [ -n "$GIT_USER_NAME" ]; then
+    gosu "$DEVELOPER_USER" git config --global user.name "$GIT_USER_NAME" 2>/dev/null || true
+fi
+if [ -n "$GIT_USER_EMAIL" ]; then
+    gosu "$DEVELOPER_USER" git config --global user.email "$GIT_USER_EMAIL" 2>/dev/null || true
+fi
+
 # 5. Mode dispatch
 case "$1" in
     setup)
