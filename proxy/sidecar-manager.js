@@ -901,9 +901,10 @@ class SidecarManager extends EventEmitter {
         if (sidecar.isScheduled) {
             // Register or update schedule
             this.stopWorker(id);
+            const existing = this.scheduledJobs.get(id);
             this.scheduledJobs.set(id, {
                 cronExpr: sidecar.cronExpr,
-                lastRun: null,
+                lastRun: existing?.lastRun || null,
                 nextRun: getNextCronRun(sidecar.cronExpr)
             });
             console.log(`[Sidecar Manager] ⏰ Scheduled sidecar '${id}' [${sidecar.cronDescription}]`);
@@ -1084,17 +1085,35 @@ class SidecarManager extends EventEmitter {
     /**
      * Minute tick evaluator for cron schedules.
      */
-    tickScheduler() {
-        const now = new Date();
+    tickScheduler(now = new Date()) {
         const currentMinute = now.getMinutes();
         if (currentMinute === this.lastCheckedMinute) return;
         this.lastCheckedMinute = currentMinute;
 
-        for (const [id, jobInfo] of this.scheduledJobs.entries()) {
-            const sidecar = this.getSidecar(id);
-            if (!sidecar || !sidecar.enabled || !sidecar.isScheduled) {
+        const sidecars = this.listSidecars();
+        const foundIds = new Set(sidecars.map(s => s.id));
+        for (const [id] of this.scheduledJobs) {
+            if (!foundIds.has(id)) {
                 this.scheduledJobs.delete(id);
+            }
+        }
+
+        for (const sidecar of sidecars) {
+            if (!sidecar.enabled || !sidecar.isScheduled) {
+                this.scheduledJobs.delete(sidecar.id);
                 continue;
+            }
+
+            const existing = this.scheduledJobs.get(sidecar.id);
+            if (!existing || existing.cronExpr !== sidecar.cronExpr) {
+                this.scheduledJobs.set(sidecar.id, {
+                    cronExpr: sidecar.cronExpr,
+                    lastRun: existing?.lastRun || null,
+                    nextRun: getNextCronRun(sidecar.cronExpr, now)
+                });
+                if (!existing) {
+                    console.log(`[Sidecar Manager] ⏰ Scheduled sidecar '${sidecar.id}' [${sidecar.cronDescription}]`);
+                }
             }
 
             if (matchesCron(sidecar.cronExpr, now)) {
