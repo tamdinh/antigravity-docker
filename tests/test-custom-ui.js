@@ -486,7 +486,10 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             class FakeHTMLElement {}
 
             let isUnfoldedViewport = true;
-            let typeaheadOpenInDom = false;
+            let userAgentStr = 'Mozilla/5.0 (Linux; Android 14)';
+            let mentionMenuInDom = false;
+            // Lexical's E6a always mounts two empty <div aria-label="Typeahead menu" role="listbox"></div> containers in document.body
+            let typeaheadListboxChildren = [];
 
             const sandbox = {
                 window: {
@@ -496,7 +499,10 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                     addEventListener: () => {},
                     localStorage: { getItem: () => null, removeItem: () => {} },
                 },
-                navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14)', maxTouchPoints: 5 },
+                navigator: {
+                    get userAgent() { return userAgentStr; },
+                    get maxTouchPoints() { return isUnfoldedViewport ? 5 : 0; },
+                },
                 document: {
                     readyState: 'loading',
                     title: 'Antigravity',
@@ -514,10 +520,18 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                     },
                     getElementById: () => null,
                     querySelector: (sel) => {
-                        if (sel.includes('Typeahead menu') && typeaheadOpenInDom) return {};
+                        if (sel.includes('[data-mention-menu]') && mentionMenuInDom) return {};
                         return null;
                     },
-                    querySelectorAll: () => [],
+                    querySelectorAll: (sel) => {
+                        if (sel.includes('Typeahead menu')) {
+                            return [
+                                { children: [], childNodes: [] },
+                                { children: typeaheadListboxChildren, childNodes: typeaheadListboxChildren },
+                            ];
+                        }
+                        return [];
+                    },
                     createElement: () => ({
                         style: {},
                         getBoundingClientRect: () => ({ height: 0 }),
@@ -542,7 +556,7 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 }
             }
 
-            function makePromptTarget(attrs = {}) {
+            function makePromptTarget(attrs = {}, lexicalEditor = null) {
                 const defaultAttrs = {
                     contenteditable: 'true',
                     role: 'combobox',
@@ -553,6 +567,7 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 const host = {
                     tagName: 'DIV',
                     contentEditable: 'true',
+                    __lexicalEditor: lexicalEditor,
                     getAttribute: (name) => defaultAttrs[name.toLowerCase()] ?? null,
                     closest: (sel) => {
                         if (sel.includes('monaco-editor')) return null;
@@ -563,17 +578,19 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 return host;
             }
 
-            // 1. Plain Enter in 50/50 split mode on prompt input -> sets shiftKey = true so Lexical inserts line break
+            // 1. Plain Enter in 50/50 split mode on prompt input (even with empty Typeahead menu containers in DOM) -> sets shiftKey = true and clears stale _compositionKey
+            const fakeLexical = { _compositionKey: '2' };
             const enterEvt1 = {
                 key: 'Enter',
                 shiftKey: false,
                 ctrlKey: false,
                 metaKey: false,
                 altKey: false,
-                target: makePromptTarget(),
+                target: makePromptTarget({}, fakeLexical),
             };
             fireKeyDown(enterEvt1);
-            assert.equal(enterEvt1.shiftKey, true, 'Plain Enter in 50/50 split mode should set shiftKey=true to add a return');
+            assert.equal(enterEvt1.shiftKey, true, 'Plain Enter in 50/50 split mode should set shiftKey=true even when empty Typeahead menu portal divs exist');
+            assert.equal(fakeLexical._compositionKey, null, 'Should clear stale _compositionKey on Lexical editor when Return is pressed');
 
             // 2. Enter when slash-command / mention typeahead menu is open (aria-expanded="true") -> leaves shiftKey = false
             const enterEvtMenu = {
@@ -587,8 +604,8 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             fireKeyDown(enterEvtMenu);
             assert.equal(enterEvtMenu.shiftKey, false, 'Enter with aria-expanded="true" should not set shiftKey so autocomplete item can be selected');
 
-            // 3. Enter when Typeahead menu listbox is in DOM -> leaves shiftKey = false
-            typeaheadOpenInDom = true;
+            // 3. Enter when Typeahead menu listbox has rendered child items or [data-mention-menu] is in DOM -> leaves shiftKey = false
+            typeaheadListboxChildren = [{}];
             const enterEvtListbox = {
                 key: 'Enter',
                 shiftKey: false,
@@ -598,8 +615,21 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 target: makePromptTarget(),
             };
             fireKeyDown(enterEvtListbox);
-            assert.equal(enterEvtListbox.shiftKey, false, 'Enter with Typeahead menu listbox in DOM should not set shiftKey');
-            typeaheadOpenInDom = false;
+            assert.equal(enterEvtListbox.shiftKey, false, 'Enter with populated Typeahead menu listbox in DOM should not set shiftKey');
+            typeaheadListboxChildren = [];
+
+            mentionMenuInDom = true;
+            const enterEvtMentionMenu = {
+                key: 'Enter',
+                shiftKey: false,
+                ctrlKey: false,
+                metaKey: false,
+                altKey: false,
+                target: makePromptTarget(),
+            };
+            fireKeyDown(enterEvtMentionMenu);
+            assert.equal(enterEvtMentionMenu.shiftKey, false, 'Enter with [data-mention-menu] in DOM should not set shiftKey');
+            mentionMenuInDom = false;
 
             // 4. Enter on a single-line <input> (e.g. sidebar rename or search) -> leaves shiftKey = false
             const inputHost = {
@@ -630,8 +660,15 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             fireKeyDown(ctrlEnterEvt);
             assert.equal(ctrlEnterEvt.shiftKey, false, 'Ctrl+Enter should not set shiftKey');
 
-            // 6. Plain Enter on desktop (not unfolded 50/50 mode) -> leaves shiftKey = false
+            // 6. Plain Enter on desktop (non-Android, not unfolded 50/50 mode) -> leaves shiftKey = false
             isUnfoldedViewport = false;
+            userAgentStr = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)';
+            const desktopSandbox = {
+                ...sandbox,
+                navigator: { userAgent: userAgentStr, maxTouchPoints: 0 },
+            };
+            docListeners['keydown'] = [];
+            vm.runInNewContext(buildPreInitScript(), desktopSandbox);
             const desktopEnterEvt = {
                 key: 'Enter',
                 shiftKey: false,

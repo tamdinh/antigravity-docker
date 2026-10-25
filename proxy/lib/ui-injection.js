@@ -568,11 +568,33 @@ function buildPreInitScript() {
         }
     }, true);
 
-    // 11. Make Enter insert a line break instead of sending the message in 50/50 split (unfolded) mode
+    // 11. Make Enter insert a line break instead of sending the message in 50/50 split (unfolded) mode and on Android keyboards
     function isUnfoldedSplitMode() {
         if (isFoldableUnfolded()) return true;
         if (typeof document !== 'undefined' && document.documentElement && document.documentElement.classList && document.documentElement.classList.contains('agy-unfolded')) {
             return true;
+        }
+        if (typeof realUA === 'string' && /Android/i.test(realUA)) return true;
+        return false;
+    }
+
+    function isTypeaheadMenuOpen(host) {
+        if (host && typeof host.getAttribute === 'function' && host.getAttribute('aria-expanded') === 'true') {
+            return true;
+        }
+        if (typeof document !== 'undefined') {
+            if (typeof document.querySelector === 'function' && document.querySelector('[data-mention-menu], .typeahead-popover')) {
+                return true;
+            }
+            if (typeof document.querySelectorAll === 'function') {
+                var menus = document.querySelectorAll('[aria-label="Typeahead menu"][role="listbox"]');
+                for (var i = 0; i < menus.length; i++) {
+                    var m = menus[i];
+                    if ((m.children && m.children.length > 0) || (m.childNodes && m.childNodes.length > 0)) {
+                        return true;
+                    }
+                }
+            }
         }
         return false;
     }
@@ -589,9 +611,14 @@ function buildPreInitScript() {
         if (!host || host.tagName === 'INPUT') return;
         if (!isMessageOrTextInput(host)) return;
 
-        // Allow Enter to select an item when the slash-command / mention typeahead menu is open
-        if (typeof host.getAttribute === 'function' && host.getAttribute('aria-expanded') === 'true') return;
-        if (typeof document !== 'undefined' && typeof document.querySelector === 'function' && document.querySelector('[aria-label="Typeahead menu"][role="listbox"]')) return;
+        // Allow Enter to select an item when the slash-command / mention typeahead menu is actually open
+        if (isTypeaheadMenuOpen(host)) return;
+
+        // Because navigator.userAgent is spoofed to Linux x86_64 in unfolded mode, Lexical's IS_ANDROID_CHROME
+        // flag is false and _compositionKey may remain set when Gboard presses Return after a word.
+        if (host.__lexicalEditor && host.__lexicalEditor._compositionKey != null) {
+            host.__lexicalEditor._compositionKey = null;
+        }
 
         try {
             Object.defineProperty(e, 'shiftKey', {
