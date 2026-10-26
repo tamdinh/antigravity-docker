@@ -10,7 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8 \
     SHELL=/bin/bash
 
-# 1. Install core base utilities and system dependencies
+# 1. Install core base utilities, system dependencies, and Python 3
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
@@ -18,13 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     openssh-client \
     jq \
-    sudo \
     procps \
     iproute2 \
     unzip \
     tar \
     xz-utils \
     gosu \
+    python3 \
+    python3-venv \
+    python-is-python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Install Node.js 26 and Bun runtime
@@ -34,13 +36,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - && \
     npm cache clean --force && \
     rm -rf /var/lib/apt/lists/* /root/.npm
 
-# 3. Install Python 3, venv, and standalone uv package manager
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-venv \
-    python-is-python3 \
-    && rm -rf /var/lib/apt/lists/* && \
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" INSTALLER_NO_MODIFY_PATH=1 sh
+# 3. Install standalone uv package manager
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" INSTALLER_NO_MODIFY_PATH=1 sh
 
 # 4. Create non-root developer user
 ARG USERNAME=developer

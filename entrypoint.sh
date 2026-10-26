@@ -180,6 +180,7 @@ fi
 # Fix ownership and ensure read/write permissions on mounted volume
 chown -R ${DEVELOPER_USER}:${DEVELOPER_USER} "$GEMINI_DIR" "/home/${DEVELOPER_USER}"
 chmod -R u+rwX,g+rwX "$GEMINI_DIR" || true
+chmod 600 "$TOKEN_FILE" "$GEMINI_DIR/config/custom_models.json" "$GEMINI_DIR/antigravity/sidecar_data/csrf_token" 2>/dev/null || true
 
 if [ "$(stat -c '%u' "$WORKSPACE_DIR" 2>/dev/null)" = "0" ]; then
     chown ${DEVELOPER_USER}:${DEVELOPER_USER} "$WORKSPACE_DIR" || true
@@ -266,11 +267,12 @@ fi
 export HOME="/home/${DEVELOPER_USER}"
 export PATH="/home/${DEVELOPER_USER}/.gemini/antigravity-cli/bin:/home/${DEVELOPER_USER}/.local/bin:/home/${DEVELOPER_USER}/.cargo/bin:/home/${DEVELOPER_USER}/.local/share/pnpm:${PATH}"
 
-# Configure git safe directory for mounted workspaces and persistent config
-gosu "$DEVELOPER_USER" git config --global --add safe.directory "$WORKSPACE_DIR" 2>/dev/null || true
-gosu "$DEVELOPER_USER" git config --global --add safe.directory "${WORKSPACE_DIR}/*" 2>/dev/null || true
-gosu "$DEVELOPER_USER" git config --global --add safe.directory "$GEMINI_DIR" 2>/dev/null || true
-gosu "$DEVELOPER_USER" git config --global --add safe.directory "$ANTIGRAVITY_DIR" 2>/dev/null || true
+# Configure git safe directory for mounted workspaces and persistent config without duplicating entries
+for safe_dir in "$WORKSPACE_DIR" "${WORKSPACE_DIR}/*" "$GEMINI_DIR"; do
+    if ! gosu "$DEVELOPER_USER" git config --global --get-all safe.directory 2>/dev/null | grep -Fxq "$safe_dir"; then
+        gosu "$DEVELOPER_USER" git config --global --add safe.directory "$safe_dir" 2>/dev/null || true
+    fi
+done
 
 # 5. Mode dispatch
 case "$1" in
@@ -281,6 +283,7 @@ case "$1" in
         echo "Follow the prompt below to sign in to your Google Account."
         echo "Once authenticated, your token will be saved to persistent storage."
         echo "==================================================================="
+        unset AUTH_PASSWORD
         exec gosu "$DEVELOPER_USER" agy --remote-control --remote-control-name "$INSTANCE_NAME" --hub-port "$AGY_HUB_PORT"
         ;;
 
@@ -296,22 +299,6 @@ case "$1" in
         # 1. Start code-server (VS Code Web IDE) on 127.0.0.1:8080 if enabled and installed
         if [ "$ENABLE_IDE" = "true" ] || [ "$ENABLE_IDE" = "1" ] || [ "$ENABLE_IDE" = "yes" ] || [ "$ENABLE_IDE" = "on" ]; then
             if command -v code-server >/dev/null 2>&1; then
-                ASSETS_DIR="/usr/local/share/antigravity/assets"
-                [ ! -d "$ASSETS_DIR" ] && ASSETS_DIR="/workspace/assets"
-                [ ! -d "$ASSETS_DIR" ] && ASSETS_DIR="/workspace/antigravity-docker/assets"
-                if [ -d "$ASSETS_DIR" ]; then
-                    if [ -d /usr/lib/code-server/src/browser/media ]; then
-                        cp "$ASSETS_DIR"/favicon.svg /usr/lib/code-server/src/browser/media/favicon.svg 2>/dev/null || true
-                        cp "$ASSETS_DIR"/favicon.svg /usr/lib/code-server/src/browser/media/favicon-dark-support.svg 2>/dev/null || true
-                        cp "$ASSETS_DIR"/favicon.ico /usr/lib/code-server/src/browser/media/favicon.ico 2>/dev/null || true
-                        cp "$ASSETS_DIR"/pwa-icon-192.png /usr/lib/code-server/src/browser/media/pwa-icon-192.png 2>/dev/null || true
-                        cp "$ASSETS_DIR"/pwa-icon-512.png /usr/lib/code-server/src/browser/media/pwa-icon-512.png 2>/dev/null || true
-                    fi
-                    if [ -d /usr/lib/code-server/lib/vscode/resources/server ]; then
-                        cp "$ASSETS_DIR"/favicon.ico /usr/lib/code-server/lib/vscode/resources/server/favicon.ico 2>/dev/null || true
-                    fi
-                fi
-
                 echo " 🟢 Starting code-server Web IDE on internal port 8080"
                 gosu "$DEVELOPER_USER" code-server \
                     --bind-addr 127.0.0.1:8080 \
@@ -354,21 +341,23 @@ case "$1" in
 
         # Enable translation proxy by default so model tier overrides (e.g. pro -> Argon)
         # and custom model providers work out of the box unless explicitly disabled.
+        ENABLE_TRANSLATION_PROXY="${ENABLE_TRANSLATION_PROXY:-true}"
         HAS_CUSTOM_MODELS="false"
-        if [ -f "$GEMINI_DIR/config/custom_models.json" ]; then
-            HAS_CUSTOM_MODELS="$(bun -e '
-                const fs = require("fs");
-                try {
-                    const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-                    const has = Boolean(cfg.enabled && Array.isArray(cfg.providers) && cfg.providers.some(p => p.enabled && Array.isArray(p.models) && p.models.some(m => m.enabled)));
-                    console.log(has ? "true" : "false");
-                } catch (e) {
-                    console.log("false");
-                }
-            ' "$GEMINI_DIR/config/custom_models.json" 2>/dev/null || echo "false")"
+        if [ "$ENABLE_TRANSLATION_PROXY" != "true" ] && [ "$ENABLE_TRANSLATION_PROXY" != "1" ] && [ "$ENABLE_TRANSLATION_PROXY" != "yes" ] && [ "$ENABLE_TRANSLATION_PROXY" != "on" ]; then
+            if [ -f "$GEMINI_DIR/config/custom_models.json" ]; then
+                HAS_CUSTOM_MODELS="$(bun -e '
+                    const fs = require("fs");
+                    try {
+                        const cfg = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                        const has = Boolean(cfg.enabled && Array.isArray(cfg.providers) && cfg.providers.some(p => p.enabled && Array.isArray(p.models) && p.models.some(m => m.enabled)));
+                        console.log(has ? "true" : "false");
+                    } catch (e) {
+                        console.log("false");
+                    }
+                ' "$GEMINI_DIR/config/custom_models.json" 2>/dev/null || echo "false")"
+            fi
         fi
 
-        ENABLE_TRANSLATION_PROXY="${ENABLE_TRANSLATION_PROXY:-true}"
         if [ "$ENABLE_TRANSLATION_PROXY" = "true" ] || [ "$ENABLE_TRANSLATION_PROXY" = "1" ] || [ "$ENABLE_TRANSLATION_PROXY" = "yes" ] || [ "$ENABLE_TRANSLATION_PROXY" = "on" ] || [ "$HAS_CUSTOM_MODELS" = "true" ]; then
             if [ -n "${CLOUD_CODE_URL:-}" ] && [ "${CLOUD_CODE_URL}" != "http://127.0.0.1:${TRANSLATION_PORT}" ]; then
                 echo " 🧠 Custom CLOUD_CODE_URL specified: ${CLOUD_CODE_URL}"
@@ -397,7 +386,7 @@ case "$1" in
         export HOST_SSH_HOST="${HOST_SSH_HOST:-host.docker.internal}"
         export HOST_SSH_PORT="${HOST_SSH_PORT:-22}"
         PROXY_SCRIPT="/usr/local/bin/auth-proxy.js"
-        if [ "${DEV_MODE:-false}" = "true" ] || [ "${AGY_DEV_PROXY:-false}" = "true" ] || [ -f "/workspace/antigravity-docker/proxy/lib/proxy.js" ]; then
+        if [ "${DEV_MODE:-false}" = "true" ] || [ "${AGY_DEV_PROXY:-false}" = "true" ]; then
             if [ -f "/workspace/antigravity-docker/proxy/auth-proxy.js" ]; then
                 PROXY_SCRIPT="/workspace/antigravity-docker/proxy/auth-proxy.js"
                 echo " 🔧 Using local auth-proxy override: $PROXY_SCRIPT"
@@ -416,7 +405,7 @@ case "$1" in
             echo " If this is your first run, check the logs or run the setup command:"
             echo "   docker compose run --rm antigravity setup"
             echo " Or via standalone docker run:"
-            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini jklinker/antigravity:latest setup"
+            echo "   docker run -it --rm -v /path/to/data:/home/developer/.gemini jklinker/antigravity:slim setup"
             echo " Or open the sign-in URL shown below in your browser."
             echo "==================================================================="
         else
@@ -427,6 +416,9 @@ case "$1" in
             echo "==================================================================="
         fi
 
+        # Do not leak gateway AUTH_PASSWORD into the agent runtime environment
+        unset AUTH_PASSWORD
+
         cd "$WORKSPACE_DIR"
 
         # Launch agy directly with explicit hub port and remote control
@@ -435,6 +427,7 @@ case "$1" in
 
     *)
         # If user passed custom command (e.g. bash, npm, python, docker)
+        unset AUTH_PASSWORD
         exec gosu "$DEVELOPER_USER" "$@"
         ;;
 esac

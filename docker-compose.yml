@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   antigravity:
-    image: jklinker/antigravity:latest
+    image: jklinker/antigravity:slim
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -14,14 +12,6 @@ services:
       - AGY_PORT=4400
       - AUTH_PASSWORD=${AUTH_PASSWORD:-}
       - BLOCK_TELEMETRY=true
-      - ENABLE_IDE=true
-      - ENABLE_TERMINAL=true
-      - HOST_SSH_USER=
-      - HOST_SSH_HOST=host.docker.internal
-      - HOST_SSH_PORT=22
-      - HOST_SSH_DIR=
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./workspace:/workspace
       - ./data/gemini:/home/developer/.gemini

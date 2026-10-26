@@ -940,6 +940,9 @@ class SidecarManager extends EventEmitter {
             ANTIGRAVITY_AGENTAPI_EXE: path.join(LOCAL_BIN_DIR, 'agy'),
             PATH: pathEntries.join(':')
         };
+        if (!sidecar.env || !Object.prototype.hasOwnProperty.call(sidecar.env, 'AUTH_PASSWORD')) {
+            delete env.AUTH_PASSWORD;
+        }
         if (lsAddress && !env.ANTIGRAVITY_LS_ADDRESS) {
             env.ANTIGRAVITY_LS_ADDRESS = lsAddress;
         }
@@ -1194,6 +1197,14 @@ class SidecarManager extends EventEmitter {
                 logStream.end();
                 try {
                     fs.copyFileSync(logFile, latestLogFile);
+                    const archiveLogs = fs.readdirSync(logsDir)
+                        .filter(f => f.endsWith('.log') && f !== 'latest.log' && f !== 'worker.log')
+                        .sort();
+                    if (archiveLogs.length > 25) {
+                        for (const oldFile of archiveLogs.slice(0, archiveLogs.length - 25)) {
+                            try { fs.unlinkSync(path.join(logsDir, oldFile)); } catch (e) {}
+                        }
+                    }
                 } catch (e) {}
                 console.log(`[Sidecar Manager] ✅ Scheduled execution for '${id}' completed (Exit Code: ${code})`);
             });
