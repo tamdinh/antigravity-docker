@@ -13,14 +13,19 @@ powered by **Bun** and **Hono** for ultra-fast startup and low memory usage.
 
 ## 🚀 Docker Compose
 
+We recommend running the lightweight **`jklinker/antigravity:slim`** image (~62%
+smaller footprint with a reduced attack surface, while including `agy`, Node.js
+26, `bun`, Python 3, `uv`, `git`, and the full web gateway, Sidecar Manager, and
+Custom Models proxy). Use `jklinker/antigravity:latest` only if you need the
+built-in VS Code Web IDE (`code-server`), Host Web Terminal (`ttyd`), or C/C++
+build toolchains.
+
 Add this service to your `docker-compose.yml`:
 
 ```yaml
-version: '3.8'
-
 services:
   antigravity:
-    image: jklinker/antigravity:latest
+    image: jklinker/antigravity:slim
     container_name: antigravity
     restart: unless-stopped
     ports:
@@ -31,14 +36,6 @@ services:
       - RC_NAME=<remote-control-name>
       - AGY_PORT=4400
       - AUTH_PASSWORD=<password-for-login>
-      - ENABLE_IDE=true
-      - ENABLE_TERMINAL=true
-      - HOST_SSH_USER=<host-username>
-      - HOST_SSH_HOST=host.docker.internal
-      - HOST_SSH_PORT=22
-      - HOST_SSH_DIR=<host-directory-path>
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - <location-of-projects>:/workspace
       - <location-of-config>:/home/developer/.gemini
@@ -98,7 +95,7 @@ docker compose run --rm antigravity setup
 ```bash
 docker run -it --rm \
   -v "<location-of-config>:/home/developer/.gemini" \
-  jklinker/antigravity:latest setup
+  jklinker/antigravity:slim setup
 ```
 
 1. Open the Google sign-in URL shown in the terminal.
@@ -307,15 +304,16 @@ To disable blocking and allow all telemetry, set `BLOCK_TELEMETRY=false` in your
 
 ---
 
-## 📦 Image Variants (`latest` vs `slim`)
+## 📦 Image Variants (`slim` vs `latest`)
 
 `antigravity-docker` provides two image targets from the same multi-stage
-`Dockerfile`:
+`Dockerfile`. **Using `jklinker/antigravity:slim` is recommended** for most
+deployments:
 
 | Tag | Target | Uncompressed Size | Included |
 | :--- | :--- | :--- | :--- |
-| `jklinker/antigravity:latest` | `full` *(default)* | ~2.1 GB | Antigravity CLI (`agy`), Node.js 26 (`npm`, `pnpm`, `yarn`, `bun`), Python 3 (`uv`, `poetry`, `pipenv`, `virtualenv`, `pip`), C/C++ build toolchain (`build-essential`, `-dev` headers), interactive shells/editors (`zsh`, `tmux`, `vim`, `nano`), VS Code Web IDE (`code-server`), and Host Web Terminal (`ttyd`). |
-| `jklinker/antigravity:slim` | `slim` | ~800 MB | Core headless dev environment (~62% smaller): Antigravity CLI (`agy`), Node.js 26 (`npm`, `bun`), Python 3 (`venv`, standalone `uv`), `git`, `openssh-client`, `curl`, `jq`, and the Bun/Hono web gateway. Omits `code-server`, `ttyd`, `build-essential`, `-dev` headers, interactive editors/shells, and redundant package managers (`ENABLE_IDE=false` and `ENABLE_TERMINAL=false` by default). |
+| `jklinker/antigravity:slim` | `slim` *(recommended)* | ~800 MB | Core headless dev environment (~62% smaller): Antigravity CLI (`agy`), Node.js 26 (`npm`, `bun`), Python 3 (`venv`, standalone `uv`), `git`, `openssh-client`, `curl`, `jq`, and the Bun/Hono web gateway. Omits `code-server`, `ttyd`, `build-essential`, `-dev` headers, interactive editors/shells, and redundant package managers (`ENABLE_IDE=false` and `ENABLE_TERMINAL=false` by default). |
+| `jklinker/antigravity:latest` | `full` | ~2.1 GB | Adds C/C++ build toolchain (`build-essential`, `-dev` headers), extra package managers (`pnpm`, `yarn`, `poetry`, `pipenv`, `virtualenv`, `pip`), interactive shells/editors (`zsh`, `tmux`, `vim`, `nano`), VS Code Web IDE (`code-server`), and Host Web Terminal (`ttyd`). |
 
 ---
 

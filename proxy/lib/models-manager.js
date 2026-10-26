@@ -314,11 +314,23 @@ class ModelsManager {
             ? existing.timeout
             : providerData.timeout;
         const providerTimeout = parseInt(rawProviderTimeout, 10);
+        const cleanEndpoint = String(providerData.endpoint || '').trim().replace(/\/+$/, '');
+        if (cleanEndpoint) {
+            let parsedEndpoint;
+            try {
+                parsedEndpoint = new URL(cleanEndpoint);
+            } catch (e) {
+                throw new Error('Invalid endpoint URL');
+            }
+            if (parsedEndpoint.protocol !== 'http:' && parsedEndpoint.protocol !== 'https:') {
+                throw new Error('Endpoint URL must use http: or https: protocol');
+            }
+        }
         const cleanProvider = {
             id,
             name: String(providerData.name || id).trim(),
             type: providerData.type === 'anthropic' ? 'anthropic' : 'openai',
-            endpoint: String(providerData.endpoint || '').trim().replace(/\/+$/, ''),
+            endpoint: cleanEndpoint,
             apiKey,
             enabled: providerData.enabled !== false,
             ...(Number.isInteger(providerTimeout) && providerTimeout > 0 ? { timeout: providerTimeout } : {}),
@@ -505,6 +517,9 @@ class ModelsManager {
         }
 
         const parsed = new URL(targetUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new Error('Endpoint URL must use http: or https: protocol');
+        }
         const headers = {
             'User-Agent': 'Antigravity-Models-Manager/1.0',
             'Accept': 'application/json'

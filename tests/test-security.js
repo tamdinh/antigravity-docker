@@ -304,4 +304,59 @@ test('Security - Web Gateway Hardening & SSRF Prevention', async (t) => {
             await readRequestBody(largeWebReq, 512);
         }, /Payload Too Large/);
     });
+
+    await t.test('buildSidecarEnv strips AUTH_PASSWORD from inherited child environment', async () => {
+        const origAuthPassword = process.env.AUTH_PASSWORD;
+        process.env.AUTH_PASSWORD = 'super-secret-gateway-password';
+        try {
+            const env = await sidecarManager.buildSidecarEnv(
+                { id: 'sec-test-sidecar', command: 'echo', args: [] },
+                '/tmp/sec-test-data'
+            );
+            assert.equal(env.AUTH_PASSWORD, undefined, 'Sidecar environment must not inherit AUTH_PASSWORD');
+        } finally {
+            if (origAuthPassword !== undefined) {
+                process.env.AUTH_PASSWORD = origAuthPassword;
+            } else {
+                delete process.env.AUTH_PASSWORD;
+            }
+        }
+    });
+
+    await t.test('ModelsManager rejects non-http/https endpoint URLs in saveProvider and testProvider', async () => {
+        const { ModelsManager } = require('../proxy/lib/models-manager.js');
+        const os = require('node:os');
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-sec-models-'));
+        const mgr = new ModelsManager({ configPath: path.join(tmpDir, 'custom_models.json') });
+        try {
+            assert.throws(() => {
+                mgr.saveProvider({
+                    name: 'Bad Scheme Provider',
+                    type: 'openai',
+                    endpoint: 'file:///etc/passwd',
+                    models: []
+                });
+            }, /http: or https:/i);
+
+            await assert.rejects(async () => {
+                await mgr.testProvider({
+                    type: 'openai',
+                    endpoint: 'ftp://127.0.0.1:21/models'
+                });
+            }, /http: or https:/i);
+        } finally {
+            fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+    });
+
+    await t.test('entrypoint.sh unsets AUTH_PASSWORD before launching agy, restricts credential file modes, and guards workspace proxy override behind DEV_MODE', () => {
+        const entrypointContent = fs.readFileSync(path.join(__dirname, '../entrypoint.sh'), 'utf8');
+        assert.match(entrypointContent, /chmod 600 "\$TOKEN_FILE" "\$GEMINI_DIR\/config\/custom_models\.json"/, 'entrypoint.sh must enforce 0600 on sensitive token/model files');
+        assert.match(entrypointContent, /unset AUTH_PASSWORD[\s\S]*?exec gosu "\$DEVELOPER_USER" agy --remote-control --remote-control-name "\$INSTANCE_NAME" --hub/, 'entrypoint.sh must unset AUTH_PASSWORD before exec agy');
+        assert.equal(
+            entrypointContent.includes('[ -f "/workspace/antigravity-docker/proxy/lib/proxy.js" ]'),
+            false,
+            'entrypoint.sh must not implicitly override auth-proxy.js merely because /workspace/antigravity-docker exists'
+        );
+    });
 });

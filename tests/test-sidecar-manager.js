@@ -522,6 +522,34 @@ test('Sidecar Manager - Plugin Sidecars & Adjacent Binaries', { skip: process.pl
             assert.ok(fs.existsSync(binaryPath), 'Plugin binary must remain on disk');
             assert.ok(fs.existsSync(path.join(testSidecarDir, 'sidecar.json')), 'Plugin sidecar.json must remain on disk');
         });
+
+        await t.test('tickScheduler automatically discovers and executes newly added plugin scheduled sidecars without reload', async () => {
+            const hotSidecarDir = path.join(testPluginDir, 'sidecars', 'hot-scheduled-bot');
+            const hotId = 'test-plugin-runner/hot-scheduled-bot';
+            fs.mkdirSync(hotSidecarDir, { recursive: true });
+
+            // Write a scheduled sidecar directly to disk without calling reload(), saveSidecar(), or toggleSidecar()
+            fs.writeFileSync(path.join(hotSidecarDir, 'sidecar.json'), JSON.stringify({
+                display_name: 'Hot Scheduled Bot',
+                builtin: 'schedule',
+                args: ['43 4 15 2 *', 'echo', 'HOT_CRON_EXECUTED=true'],
+                restart_policy: 'always'
+            }, null, 2), 'utf8');
+
+            // Ensure it is not yet in scheduledJobs before tickScheduler runs
+            sidecarManager.scheduledJobs.delete(hotId);
+            sidecarManager.lastCheckedMinute = -1;
+
+            const matchingDate = new Date(2026, 1, 15, 4, 43, 0);
+            sidecarManager.tickScheduler(matchingDate);
+
+            assert.ok(sidecarManager.scheduledJobs.has(hotId), 'tickScheduler should auto-register newly discovered scheduled sidecar');
+            await new Promise(r => setTimeout(r, 300));
+
+            const logs = sidecarManager.getLogs(hotId);
+            assert.ok(logs.includes('HOT_CRON_EXECUTED=true'), `Scheduled job should have executed on matching tick: ${logs}`);
+            sidecarManager.scheduledJobs.delete(hotId);
+        });
     } finally {
         // Clean up test directories
         try { fs.rmSync(testPluginDir, { recursive: true, force: true }); } catch (e) {}

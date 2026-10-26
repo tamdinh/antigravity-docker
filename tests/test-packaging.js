@@ -192,8 +192,9 @@ test('Container Packaging & Module Resolution (DOCKER-01)', async (t) => {
         assert.match(slimStage, /ENABLE_IDE="false"/, 'slim stage must default ENABLE_IDE to false');
         assert.match(slimStage, /ENABLE_TERMINAL="false"/, 'slim stage must default ENABLE_TERMINAL to false');
 
-        // Slim stage must NOT include IDE, terminal, C/C++ build toolchain, interactive editors/shells, or redundant package managers
+        // Slim stage must NOT include IDE, terminal, C/C++ build toolchain, interactive editors/shells, sudo, or redundant package managers
         for (const excluded of [
+            'sudo',
             'code-server',
             'ttyd',
             'host-terminal.sh',

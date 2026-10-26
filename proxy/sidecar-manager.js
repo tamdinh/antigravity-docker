@@ -901,9 +901,10 @@ class SidecarManager extends EventEmitter {
         if (sidecar.isScheduled) {
             // Register or update schedule
             this.stopWorker(id);
+            const existing = this.scheduledJobs.get(id);
             this.scheduledJobs.set(id, {
                 cronExpr: sidecar.cronExpr,
-                lastRun: null,
+                lastRun: existing?.lastRun || null,
                 nextRun: getNextCronRun(sidecar.cronExpr)
             });
             console.log(`[Sidecar Manager] ⏰ Scheduled sidecar '${id}' [${sidecar.cronDescription}]`);
@@ -939,6 +940,9 @@ class SidecarManager extends EventEmitter {
             ANTIGRAVITY_AGENTAPI_EXE: path.join(LOCAL_BIN_DIR, 'agy'),
             PATH: pathEntries.join(':')
         };
+        if (!sidecar.env || !Object.prototype.hasOwnProperty.call(sidecar.env, 'AUTH_PASSWORD')) {
+            delete env.AUTH_PASSWORD;
+        }
         if (lsAddress && !env.ANTIGRAVITY_LS_ADDRESS) {
             env.ANTIGRAVITY_LS_ADDRESS = lsAddress;
         }
@@ -1084,17 +1088,35 @@ class SidecarManager extends EventEmitter {
     /**
      * Minute tick evaluator for cron schedules.
      */
-    tickScheduler() {
-        const now = new Date();
+    tickScheduler(now = new Date()) {
         const currentMinute = now.getMinutes();
         if (currentMinute === this.lastCheckedMinute) return;
         this.lastCheckedMinute = currentMinute;
 
-        for (const [id, jobInfo] of this.scheduledJobs.entries()) {
-            const sidecar = this.getSidecar(id);
-            if (!sidecar || !sidecar.enabled || !sidecar.isScheduled) {
+        const sidecars = this.listSidecars();
+        const foundIds = new Set(sidecars.map(s => s.id));
+        for (const [id] of this.scheduledJobs) {
+            if (!foundIds.has(id)) {
                 this.scheduledJobs.delete(id);
+            }
+        }
+
+        for (const sidecar of sidecars) {
+            if (!sidecar.enabled || !sidecar.isScheduled) {
+                this.scheduledJobs.delete(sidecar.id);
                 continue;
+            }
+
+            const existing = this.scheduledJobs.get(sidecar.id);
+            if (!existing || existing.cronExpr !== sidecar.cronExpr) {
+                this.scheduledJobs.set(sidecar.id, {
+                    cronExpr: sidecar.cronExpr,
+                    lastRun: existing?.lastRun || null,
+                    nextRun: getNextCronRun(sidecar.cronExpr, now)
+                });
+                if (!existing) {
+                    console.log(`[Sidecar Manager] ⏰ Scheduled sidecar '${sidecar.id}' [${sidecar.cronDescription}]`);
+                }
             }
 
             if (matchesCron(sidecar.cronExpr, now)) {
@@ -1175,6 +1197,14 @@ class SidecarManager extends EventEmitter {
                 logStream.end();
                 try {
                     fs.copyFileSync(logFile, latestLogFile);
+                    const archiveLogs = fs.readdirSync(logsDir)
+                        .filter(f => f.endsWith('.log') && f !== 'latest.log' && f !== 'worker.log')
+                        .sort();
+                    if (archiveLogs.length > 25) {
+                        for (const oldFile of archiveLogs.slice(0, archiveLogs.length - 25)) {
+                            try { fs.unlinkSync(path.join(logsDir, oldFile)); } catch (e) {}
+                        }
+                    }
                 } catch (e) {}
                 console.log(`[Sidecar Manager] ✅ Scheduled execution for '${id}' completed (Exit Code: ${code})`);
             });

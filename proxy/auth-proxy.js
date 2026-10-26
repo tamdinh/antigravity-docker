@@ -33,7 +33,7 @@ const {
     SESSION_TTL_MS
 } = require('./lib/session.js');
 
-const { safeCompare, readRequestBody } = require('./lib/security.js');
+const { safeCompare, readRequestBody, readJsonBody } = require('./lib/security.js');
 const { isFaviconRequest, getFaviconAsset } = require('./lib/favicon.js');
 const {
     renderLoginPage,
@@ -308,11 +308,11 @@ app.get('/api/sidecars', (c) => {
 app.post('/api/sidecars', async (c) => {
     if (!sidecarManager) return c.json({ error: 'Sidecar manager subsystem not available.' }, 500);
     try {
-        const body = await c.req.json();
+        const body = await readJsonBody(c.req.raw, 64 * 1024);
         const saved = await sidecarManager.saveSidecar(body);
         return c.json(saved);
     } catch (e) {
-        return c.json({ error: e.message }, 400);
+        return c.json({ error: e.message }, e.message === 'Payload Too Large' ? 413 : 400);
     }
 });
 
@@ -320,11 +320,11 @@ app.post('/api/sidecars/:id/toggle', async (c) => {
     if (!sidecarManager) return c.json({ error: 'Sidecar manager subsystem not available.' }, 500);
     try {
         const id = c.req.param('id');
-        const body = await c.req.json();
+        const body = await readJsonBody(c.req.raw, 16 * 1024);
         const updated = await sidecarManager.toggleSidecar(id, body.enabled);
         return c.json(updated);
     } catch (e) {
-        return c.json({ error: e.message }, 400);
+        return c.json({ error: e.message }, e.message === 'Payload Too Large' ? 413 : 400);
     }
 });
 
@@ -374,18 +374,18 @@ app.get('/api/models', (c) => {
 app.post('/api/models/test', async (c) => {
     if (!modelsManager) return c.json({ error: 'Models manager subsystem not available.' }, 500);
     try {
-        const body = await c.req.json();
+        const body = await readJsonBody(c.req.raw, 64 * 1024);
         const result = await modelsManager.testProvider(body);
         return c.json(result);
     } catch (e) {
-        return c.json({ error: e.message }, 400);
+        return c.json({ error: e.message }, e.message === 'Payload Too Large' ? 413 : 400);
     }
 });
 
 app.post('/api/models', async (c) => {
     if (!modelsManager) return c.json({ error: 'Models manager subsystem not available.' }, 500);
     try {
-        const body = await c.req.json();
+        const body = await readJsonBody(c.req.raw, 64 * 1024);
         const saved = modelsManager.saveProvider(body);
         ensureTranslationProxyStarted(true);
         return c.json({
@@ -394,7 +394,7 @@ app.post('/api/models', async (c) => {
             hasKey: Boolean(saved.apiKey && saved.apiKey.trim().length > 0)
         });
     } catch (e) {
-        return c.json({ error: e.message }, 400);
+        return c.json({ error: e.message }, e.message === 'Payload Too Large' ? 413 : 400);
     }
 });
 
@@ -482,7 +482,6 @@ app.all('*', (c) => {
     });
 });
 
-setInterval(checkPortFile, 500);
 checkPortFile();
 
 if (sidecarManager) {
