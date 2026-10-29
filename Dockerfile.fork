@@ -22,6 +22,8 @@ COPY scripts/fork/init.sh /usr/local/bin/fork-init.sh
 RUN chmod +x /usr/local/share/antigravity/fork/*.sh \
              /usr/local/bin/fork-entrypoint.sh \
              /usr/local/bin/fork-init.sh && \
+    cp -f /usr/local/share/antigravity/fork/host-terminal.sh /usr/local/bin/host-terminal.sh && \
+    chmod 755 /usr/local/bin/host-terminal.sh && \
     ln -sf /usr/local/share/antigravity/fork/set-password.sh /usr/local/bin/set-password && \
     ln -sf /usr/local/share/antigravity/fork/show-ssh-key.sh /usr/local/bin/show-ssh-key && \
     ln -sf /usr/local/bin/show-ssh-key /usr/local/bin/git-key && \

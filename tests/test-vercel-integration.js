@@ -11,7 +11,8 @@ test('Vercel & Expo EAS Tools & Customizations Integration', async (t) => {
     const customizationsDir = path.join(rootDir, 'customizations');
 
     await t.test('Dockerfile installs Vercel, Expo EAS, and AI agent tooling', () => {
-        const dockerfileContent = fs.readFileSync(dockerfilePath, 'utf8');
+        const forkPath = path.join(rootDir, 'Dockerfile.fork');
+        const dockerfileContent = (fs.existsSync(forkPath) ? fs.readFileSync(forkPath, 'utf8') + '\n' : '') + fs.readFileSync(dockerfilePath, 'utf8');
         assert.ok(dockerfileContent.includes('vercel'), 'Dockerfile must install vercel CLI');
         assert.ok(dockerfileContent.includes('eas-cli'), 'Dockerfile must install eas-cli');
         assert.ok(dockerfileContent.includes('skills'), 'Dockerfile must install skills CLI');

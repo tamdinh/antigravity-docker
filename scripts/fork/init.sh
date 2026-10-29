@@ -152,3 +152,16 @@ fi
 if [ -n "$DOKPLOY_URL" ] && [ -n "$DOKPLOY_API_KEY" ] && command -v dokploy >/dev/null 2>&1; then
     gosu "$DEVELOPER_USER" dokploy auth -u "$DOKPLOY_URL" -t "$DOKPLOY_API_KEY" >/dev/null 2>&1 || true
 fi
+
+# Ensure fork terminal gateway with container shell support is active
+if [ -f "/workspace/antigravity-docker/scripts/fork/host-terminal.sh" ]; then
+    cp -f "/workspace/antigravity-docker/scripts/fork/host-terminal.sh" /usr/local/bin/host-terminal.sh
+    chmod 755 /usr/local/bin/host-terminal.sh
+elif [ -f "/workspace/scripts/fork/host-terminal.sh" ]; then
+    cp -f "/workspace/scripts/fork/host-terminal.sh" /usr/local/bin/host-terminal.sh
+    chmod 755 /usr/local/bin/host-terminal.sh
+elif [ -f "/usr/local/share/antigravity/fork/host-terminal.sh" ]; then
+    cp -f /usr/local/share/antigravity/fork/host-terminal.sh /usr/local/bin/host-terminal.sh
+    chmod 755 /usr/local/bin/host-terminal.sh
+fi
+

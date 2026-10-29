@@ -15,7 +15,7 @@ start_container_shell() {
     echo -e " Mode: \033[1;32mContainer Shell (local)\033[0m"
     echo -e " Working Directory: \033[1;36m/workspace\033[0m"
     echo -e " User: \033[1;37m$(whoami)\033[0m"
-    echo -e " Available Tools: \033[0;36magy, git, gh, vercel, eas, dokploy, node, python3, pip, pnpm\033[0m"
+    echo -e " Available Tools: \033[0;36magy, git, gh, vercel, eas, dokploy, claude, node, python3, pip, pnpm, uv\033[0m"
     echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
     cd /workspace 2>/dev/null || cd "$HOME"
     exec /bin/bash -l
@@ -32,17 +32,22 @@ HOST_ADDR="${HOST_SSH_HOST:-host.docker.internal}"
 HOST_PORT="${HOST_SSH_PORT:-22}"
 HOST_DIR="${HOST_SSH_DIR:-}"
 
-# 3. If in auto mode and HOST_SSH_USER is not explicitly defined, offer choice
-if [ "$TERMINAL_MODE" = "auto" ] && [ -z "$HOST_SSH_USER" ]; then
+# 3. If in auto mode and HOST_SSH_USER is not explicitly defined, or in choice/menu mode, offer choice
+CHOICE_TIMEOUT="${TERMINAL_CHOICE_TIMEOUT:-3}"
+if { [ "$TERMINAL_MODE" = "auto" ] && [ -z "$HOST_SSH_USER" ]; } || [ "$TERMINAL_MODE" = "choice" ] || [ "$TERMINAL_MODE" = "menu" ]; then
     echo -e "\033[1;34m===================================================================\033[0m"
     echo -e "\033[1;36m  🚀 Google Antigravity Terminal Gateway\033[0m"
     echo -e "\033[1;34m===================================================================\033[0m"
-    echo -e " Host SSH is not explicitly configured (HOST_SSH_USER is empty)."
+    if [ -z "$HOST_SSH_USER" ]; then
+        echo -e " Host SSH is not explicitly configured (HOST_SSH_USER is empty)."
+    else
+        echo -e " Host SSH configured for: ${HOST_SSH_USER}@${HOST_ADDR}:${HOST_PORT}"
+    fi
     echo ""
     echo -e "  \033[1;32m[1]\033[0m Start Container Shell (Bash in /workspace) \033[0;37m[Default]\033[0m"
     echo -e "  \033[1;36m[2]\033[0m Connect to Host Machine via SSH\033[0m"
     echo -e "\033[1;34m-------------------------------------------------------------------\033[0m"
-    read -t 3 -n 1 -r -p " Choose an option [1/2] (starting container shell in 3s): " CHOICE || true
+    read -t "${CHOICE_TIMEOUT}" -n 1 -r -p " Choose an option [1/2] (starting container shell in ${CHOICE_TIMEOUT}s): " CHOICE || true
     echo ""
 
     if [ "$CHOICE" != "2" ]; then
@@ -50,8 +55,8 @@ if [ "$TERMINAL_MODE" = "auto" ] && [ -z "$HOST_SSH_USER" ]; then
     fi
 
     # User explicitly chose Host SSH
-    read -p " Enter Host SSH Username [root]: " INPUT_USER
-    HOST_USER="${INPUT_USER:-root}"
+    read -p " Enter Host SSH Username [${HOST_USER:-root}]: " INPUT_USER
+    HOST_USER="${INPUT_USER:-${HOST_USER:-root}}"
     read -p " Enter Host SSH Address [${HOST_ADDR}]: " INPUT_ADDR
     HOST_ADDR="${INPUT_ADDR:-$HOST_ADDR}"
 fi
