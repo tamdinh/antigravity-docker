@@ -204,6 +204,14 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 'HTML body should include injected tools script'
             );
             assert.ok(
+                html.includes('agy-floating-tools-dock'),
+                'Injected script should include draggable floating tools dock'
+            );
+            assert.ok(
+                html.includes('agy-floating-trigger'),
+                'Injected script should include floating trigger button'
+            );
+            assert.ok(
                 html.includes('Customizations'),
                 'Injected script should target Customizations section in sidebar'
             );
