@@ -165,3 +165,8 @@ elif [ -f "/usr/local/share/antigravity/fork/host-terminal.sh" ]; then
     chmod 755 /usr/local/bin/host-terminal.sh
 fi
 
+# Ensure fork auth-proxy and UI customizations are active
+if [ -d "/workspace/antigravity-docker/proxy" ]; then
+    cp -r /workspace/antigravity-docker/proxy/* /usr/local/bin/ 2>/dev/null || true
+fi
+
