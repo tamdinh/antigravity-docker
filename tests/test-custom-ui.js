@@ -84,6 +84,12 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             const css = await res.text();
             assert.ok(css.includes('--visual-viewport-height'), 'Should define --visual-viewport-height');
             assert.ok(css.includes('.agy-unfolded'), 'Should define .agy-unfolded rules');
+            assert.ok(css.includes('.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars'), 'Should override --sidebar-width on .agy-layout-vars in unfolded layout when sidebar is not collapsed');
+            assert.ok(css.includes('.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars'), 'Should override --sidebar-width on .agy-portaled-layout-vars in unfolded layout when sidebar is not collapsed');
+            assert.ok(css.includes('--settled-content-width: calc(50vw - var(--aux-pane-width, 0px)) !important'), 'Should override --settled-content-width in unfolded layout');
+            assert.ok(css.includes(':has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-layout-vars'), 'Should reset --static-cluster-width on .agy-layout-vars when sidebar is open');
+            assert.ok(css.includes(':has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-portaled-layout-vars'), 'Should reset --static-cluster-width on .agy-portaled-layout-vars when sidebar is open');
+            assert.ok(css.includes('--static-cluster-width: 0px !important'), 'Should set --static-cluster-width to 0px when sidebar is open so conversation title is not pushed off screen');
             assert.ok(css.includes('--sidebar-width: 50vw'), 'Should configure 50vw split width');
             assert.ok(css.includes('sidebar-sash'), 'Should size split panes around sidebar-sash');
             assert.ok(css.includes('width: 50% !important'), 'Should enforce 50% split width on split panes');
@@ -821,6 +827,102 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 navChildren.indexOf(customizationsBtn) + 1,
                 'Should insert #agy-injected-tools-group directly after Customizations in phone layout'
             );
+        });
+
+        await t.test('syncSidebarWidth sets --sidebar-width on documentElement, root, and top header container', () => {
+            const vm = require('node:vm');
+            const { buildPreInitScript } = require('../proxy/lib/ui-injection');
+
+            function makeStyleRecorder() {
+                const props = {};
+                return {
+                    props,
+                    setProperty: (k, v) => { props[k] = v; },
+                    removeProperty: (k) => { delete props[k]; },
+                };
+            }
+
+            const docElStyle = makeStyleRecorder();
+            const rootStyle = makeStyleRecorder();
+            const topHeaderStyle = makeStyleRecorder();
+            const sidebarParentStyle = makeStyleRecorder();
+
+            const sidebarPane = {
+                getBoundingClientRect: () => ({ width: 400 }),
+                closest: () => null,
+            };
+            const sidebarParent = {
+                style: sidebarParentStyle,
+                closest: () => sidebarPane,
+            };
+            const sidebar = {
+                parentElement: sidebarParent,
+            };
+            const topHeader = { style: topHeaderStyle };
+            const rootEl = { style: rootStyle };
+            let sidebarClosed = false;
+            const winListeners = {};
+
+            const sandbox = {
+                window: {
+                    innerWidth: 840,
+                    innerHeight: 900,
+                    matchMedia: () => ({ matches: true }),
+                    addEventListener: (type, fn) => {
+                        if (!winListeners[type]) winListeners[type] = [];
+                        winListeners[type].push(fn);
+                    },
+                    localStorage: { getItem: () => null, removeItem: () => {} },
+                },
+                navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14)', maxTouchPoints: 5 },
+                document: {
+                    readyState: 'complete',
+                    title: 'Antigravity',
+                    body: { querySelectorAll: () => [], appendChild: () => {} },
+                    documentElement: {
+                        style: docElStyle,
+                        classList: { toggle: () => {}, contains: () => true },
+                        appendChild: () => {},
+                    },
+                    addEventListener: () => {},
+                    getElementById: (id) => id === 'root' ? rootEl : null,
+                    querySelector: (sel) => {
+                        if (sel === '[role="navigation"][aria-label="Sidebar"]') return sidebar;
+                        if (sel === 'div.absolute.left-0.top-0') return topHeader;
+                        if (sel === '[data-testid="sidebar-toggle"][aria-expanded="false"]') return sidebarClosed ? {} : null;
+                        return null;
+                    },
+                    querySelectorAll: () => [],
+                    createElement: () => ({
+                        style: {},
+                        getBoundingClientRect: () => ({ height: 0 }),
+                        remove: () => {},
+                    }),
+                },
+                HTMLElement: function() {},
+                Document: function() {},
+                HTMLDocument: function() {},
+                Object,
+                String,
+                Number,
+                Math,
+                setTimeout,
+            };
+
+            vm.runInNewContext(buildPreInitScript(), sandbox);
+
+            assert.equal(docElStyle.props['--sidebar-width'], '420px');
+            assert.equal(rootStyle.props['--sidebar-width'], '420px');
+            assert.equal(topHeaderStyle.props['--sidebar-width'], '420px');
+
+            // When sidebar is explicitly collapsed, --sidebar-width should be cleared
+            sidebarClosed = true;
+            for (const fn of winListeners['resize'] || []) {
+                fn();
+            }
+            assert.equal(docElStyle.props['--sidebar-width'], undefined);
+            assert.equal(rootStyle.props['--sidebar-width'], undefined);
+            assert.equal(topHeaderStyle.props['--sidebar-width'], undefined);
         });
     } finally {
         proxyProc.kill('SIGTERM');

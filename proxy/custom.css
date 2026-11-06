@@ -47,6 +47,12 @@ input:focus {
   --sidebar-width: 50vw !important;
 }
 
+.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars,
+.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars {
+  --sidebar-width: 50vw !important;
+  --settled-content-width: calc(50vw - var(--aux-pane-width, 0px)) !important;
+}
+
 /* Outer split-pane container containing the sidebar sash */
 .agy-unfolded div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:first-child {
   width: 50% !important;
@@ -86,6 +92,11 @@ input:focus {
 @media (min-width: 480px) and (max-width: 1050px) and (min-aspect-ratio: 65/100) and (max-aspect-ratio: 150/100) {
   :root {
     --sidebar-width: 50vw !important;
+  }
+  :root:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars,
+  :root:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars {
+    --sidebar-width: 50vw !important;
+    --settled-content-width: calc(50vw - var(--aux-pane-width, 0px)) !important;
   }
   div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:first-child {
     width: 50% !important;
@@ -151,6 +162,12 @@ div.absolute.left-0.top-0:has([data-testid="sidebar-toggle"][aria-expanded="true
   pointer-events: none !important;
   z-index: 50 !important;
   height: 40px !important;
+}
+
+/* Prevent full-width open sidebar header from inflating --static-cluster-width and pushing conversation title off screen */
+:has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-layout-vars,
+:has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-portaled-layout-vars {
+  --static-cluster-width: 0px !important;
 }
 
 /* Ensure the header inner wrapper fills 100% width and spaces between */

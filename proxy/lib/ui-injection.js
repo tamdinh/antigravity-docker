@@ -431,30 +431,52 @@ function buildPreInitScript() {
     }
 
     // 9. Sync sidebar width to CSS custom property --sidebar-width via ResizeObserver
+    function updateSidebarWidthVars(widthPx) {
+        var targets = [
+            document.documentElement,
+            document.querySelector('.h-screen.w-screen') || document.getElementById('root'),
+            document.querySelector('div.absolute.left-0.top-0')
+        ];
+        var val = (typeof widthPx === 'number' && widthPx > 0) ? (widthPx + 'px') : null;
+        for (var i = 0; i < targets.length; i++) {
+            var el = targets[i];
+            if (!el || !el.style) continue;
+            if (val) {
+                el.style.setProperty('--sidebar-width', val);
+            } else {
+                el.style.removeProperty('--sidebar-width');
+            }
+        }
+    }
+
+    function isSidebarExplicitlyClosed() {
+        return !!(document.querySelector && document.querySelector('[data-testid="sidebar-toggle"][aria-expanded="false"]'));
+    }
+
     function syncSidebarWidth() {
         var sidebar = document.querySelector('[role="navigation"][aria-label="Sidebar"]');
         var sidebarPane = sidebar
             ? (sidebar.parentElement?.closest('div[style*="container-type"] > div:first-child') || sidebar.parentElement)
             : null;
         var isUnfolded = isFoldableUnfolded();
+        var isClosed = isSidebarExplicitlyClosed();
 
-        if (sidebar && sidebarPane && isUnfolded) {
-            var parent = sidebar.parentElement;
-            if (parent && parent !== sidebarPane) {
-                parent.style.setProperty('width', '100%', 'important');
-                parent.style.setProperty('max-width', '100%', 'important');
-                parent.style.setProperty('min-width', '100%', 'important');
-                parent.style.setProperty('left', '0px', 'important');
-                parent.style.setProperty('right', '0px', 'important');
-                parent.style.setProperty('position', 'relative', 'important');
+        if (isUnfolded) {
+            if (sidebar && sidebarPane && !isClosed) {
+                var parent = sidebar.parentElement;
+                if (parent && parent !== sidebarPane) {
+                    parent.style.setProperty('width', '100%', 'important');
+                    parent.style.setProperty('max-width', '100%', 'important');
+                    parent.style.setProperty('min-width', '100%', 'important');
+                    parent.style.setProperty('left', '0px', 'important');
+                    parent.style.setProperty('right', '0px', 'important');
+                    parent.style.setProperty('position', 'relative', 'important');
+                }
             }
-            var halfW = Math.round(window.innerWidth / 2);
-            if (document.documentElement) {
-                document.documentElement.style.setProperty('--sidebar-width', halfW + 'px');
-            }
-            var layoutContainer = document.querySelector('.h-screen.w-screen') || document.getElementById('root');
-            if (layoutContainer) {
-                layoutContainer.style.setProperty('--sidebar-width', halfW + 'px');
+            if (isClosed) {
+                updateSidebarWidthVars(null);
+            } else {
+                updateSidebarWidthVars(Math.round(window.innerWidth / 2));
             }
         }
 
@@ -463,24 +485,26 @@ function buildPreInitScript() {
             new ResizeObserver(function(entries) {
                 for (var i = 0; i < entries.length; i++) {
                     var w = entries[i].contentRect ? entries[i].contentRect.width : entries[i].target.getBoundingClientRect().width;
-                    if (isFoldableUnfolded()) {
-                        w = Math.round(window.innerWidth / 2);
-                    }
-                    if (w > 50 && document.documentElement) {
-                        document.documentElement.style.setProperty('--sidebar-width', w + 'px');
-                        var lc = document.querySelector('.h-screen.w-screen') || document.getElementById('root');
-                        if (lc) lc.style.setProperty('--sidebar-width', w + 'px');
-                    } else if (document.documentElement && !isFoldableUnfolded()) {
-                        document.documentElement.style.removeProperty('--sidebar-width');
+                    if (w > 50 && !isSidebarExplicitlyClosed()) {
+                        if (isFoldableUnfolded()) {
+                            w = Math.round(window.innerWidth / 2);
+                        }
+                        updateSidebarWidthVars(w);
+                    } else {
+                        updateSidebarWidthVars(null);
                     }
                 }
             }).observe(sidebarPane);
-        } else if (sidebarPane && document.documentElement && !isUnfolded) {
-            var rect = sidebarPane.getBoundingClientRect();
-            if (rect.width > 50) {
-                document.documentElement.style.setProperty('--sidebar-width', rect.width + 'px');
+        } else if (!isUnfolded) {
+            if (sidebarPane && !isClosed) {
+                var rect = sidebarPane.getBoundingClientRect();
+                if (rect.width > 50) {
+                    updateSidebarWidthVars(rect.width);
+                } else {
+                    updateSidebarWidthVars(null);
+                }
             } else {
-                document.documentElement.style.removeProperty('--sidebar-width');
+                updateSidebarWidthVars(null);
             }
         }
     }
