@@ -250,6 +250,8 @@ test('Security - Web Gateway Hardening & SSRF Prevention', async (t) => {
     });
 
     await t.test('isAuthenticated supports Context, Request, and raw cookie headers', () => {
+        const origAuthPassword = process.env.AUTH_PASSWORD;
+        process.env.AUTH_PASSWORD = 'test-auth-password';
         const token = 'test-valid-session-token';
         activeSessions.set(token, {
             createdAt: Date.now(),
@@ -272,6 +274,11 @@ test('Security - Web Gateway Hardening & SSRF Prevention', async (t) => {
             assert.equal(isAuthenticated('antigravity_session=invalid-token'), false);
         } finally {
             activeSessions.delete(token);
+            if (origAuthPassword !== undefined) {
+                process.env.AUTH_PASSWORD = origAuthPassword;
+            } else {
+                delete process.env.AUTH_PASSWORD;
+            }
         }
     });
 

@@ -680,6 +680,148 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             fireKeyDown(desktopEnterEvt);
             assert.equal(desktopEnterEvt.shiftKey, false, 'Plain Enter on desktop should remain untouched');
         });
+
+        await t.test('Injected tools script places Sidecar Manager and Custom Models under Customizations in phone layout', () => {
+            const vm = require('node:vm');
+            const { INJECTED_UI_STYLES, buildInjectedScript } = require('../proxy/lib/ui-injection');
+
+            // Verify CSS does not hide .agy-injected-tools-group on narrow folded phone layouts
+            assert.ok(
+                !INJECTED_UI_STYLES.includes(':root:not(.agy-unfolded) .agy-injected-tools-group'),
+                'INJECTED_UI_STYLES should not hide .agy-injected-tools-group on phone layout'
+            );
+            assert.ok(
+                INJECTED_UI_STYLES.includes(':root:not(.agy-unfolded) .agy-injected-btn-ide'),
+                'INJECTED_UI_STYLES should still hide IDE button on narrow folded phone layout'
+            );
+
+            // Simulate phone layout DOM (MOBILE_HOME_VIEW: [data-testid="sidebar-navigation-items"] with no [role="navigation"][aria-label="Sidebar"])
+            const navChildren = [];
+            const mobileNavContainer = {
+                id: '',
+                className: 'flex flex-col gap-1.5 px-2',
+                classList: { contains: (cls) => cls === 'flex-col' },
+                children: navChildren,
+                getAttribute: (name) => name === 'data-testid' ? 'sidebar-navigation-items' : null,
+                querySelectorAll: () => navChildren.filter((el) => el.tagName === 'A' || el.tagName === 'BUTTON'),
+                insertBefore: (newNode, refNode) => {
+                    const existingIdx = navChildren.indexOf(newNode);
+                    if (existingIdx !== -1) navChildren.splice(existingIdx, 1);
+                    newNode.parentElement = mobileNavContainer;
+                    newNode.parentNode = mobileNavContainer;
+                    const idx = navChildren.indexOf(refNode);
+                    if (idx === -1) {
+                        navChildren.push(newNode);
+                    } else {
+                        navChildren.splice(idx, 0, newNode);
+                    }
+                    syncSiblings();
+                },
+                appendChild: (newNode) => {
+                    const existingIdx = navChildren.indexOf(newNode);
+                    if (existingIdx !== -1) navChildren.splice(existingIdx, 1);
+                    newNode.parentElement = mobileNavContainer;
+                    newNode.parentNode = mobileNavContainer;
+                    navChildren.push(newNode);
+                    syncSiblings();
+                },
+            };
+
+            function syncSiblings() {
+                for (let i = 0; i < navChildren.length; i++) {
+                    navChildren[i].previousElementSibling = i > 0 ? navChildren[i - 1] : null;
+                    navChildren[i].nextSibling = i < navChildren.length - 1 ? navChildren[i + 1] : null;
+                }
+            }
+
+            const historyBtn = {
+                tagName: 'A',
+                textContent: 'historyConversation History',
+                parentElement: mobileNavContainer,
+                parentNode: mobileNavContainer,
+                getAttribute: (name) => {
+                    if (name === 'href') return '/history';
+                    if (name === 'data-testid') return 'history-button';
+                    if (name === 'aria-label') return 'Conversation History';
+                    return null;
+                },
+                closest: () => null,
+            };
+
+            const customizationsBtn = {
+                tagName: 'A',
+                textContent: 'home_repair_serviceCustomizations',
+                parentElement: mobileNavContainer,
+                parentNode: mobileNavContainer,
+                getAttribute: (name) => {
+                    if (name === 'href') return '/customizations';
+                    if (name === 'aria-label') return 'Customizations';
+                    return null;
+                },
+                closest: () => null,
+            };
+
+            navChildren.push(historyBtn, customizationsBtn);
+            syncSiblings();
+
+            let createdToolsEl = null;
+            const sandbox = {
+                document: {
+                    readyState: 'complete',
+                    head: { appendChild: () => {} },
+                    body: {},
+                    addEventListener: () => {},
+                    getElementById: (id) => {
+                        if (id === 'agy-injected-tools-group' && createdToolsEl && navChildren.includes(createdToolsEl)) {
+                            return createdToolsEl;
+                        }
+                        return null;
+                    },
+                    querySelector: (sel) => {
+                        if (sel.includes('[data-testid="sidebar-navigation-items"]')) {
+                            return mobileNavContainer;
+                        }
+                        return null;
+                    },
+                    querySelectorAll: (sel) => {
+                        if (sel.includes("link[rel*='icon']")) return [];
+                        return [];
+                    },
+                    createElement: (tag) => {
+                        const el = {
+                            tagName: tag.toUpperCase(),
+                            id: '',
+                            className: '',
+                            innerHTML: '',
+                            rel: '',
+                            type: '',
+                            href: '',
+                            setAttribute: () => {},
+                            getAttribute: () => null,
+                        };
+                        if (tag.toLowerCase() === 'div') {
+                            createdToolsEl = el;
+                        }
+                        return el;
+                    },
+                },
+                MutationObserver: function() {
+                    return { observe: () => {} };
+                },
+            };
+
+            vm.runInNewContext(buildInjectedScript(), sandbox);
+
+            assert.ok(createdToolsEl, 'Should create #agy-injected-tools-group in phone layout');
+            assert.equal(createdToolsEl.id, 'agy-injected-tools-group');
+            assert.ok(createdToolsEl.innerHTML.includes('Sidecar Manager'), 'Should include Sidecar Manager button');
+            assert.ok(createdToolsEl.innerHTML.includes('Custom Models'), 'Should include Custom Models button');
+            assert.equal(
+                navChildren.indexOf(createdToolsEl),
+                navChildren.indexOf(customizationsBtn) + 1,
+                'Should insert #agy-injected-tools-group directly after Customizations in phone layout'
+            );
+        });
     } finally {
         proxyProc.kill('SIGTERM');
         await new Promise((resolve) => mockAgyServer.close(resolve));

@@ -93,9 +93,10 @@ const INJECTED_UI_STYLES = `
     font-weight: 400;
 }
 
-/* Hide injected workspace tools on narrow folded mobile layouts */
+/* Hide Web IDE and Host Terminal buttons on narrow folded mobile layouts, keeping Sidecar Manager and Custom Models visible */
 @media (max-width: 768px) {
-    :root:not(.agy-unfolded) .agy-injected-tools-group {
+    :root:not(.agy-unfolded) .agy-injected-btn-ide,
+    :root:not(.agy-unfolded) .agy-injected-btn-terminal {
         display: none !important;
     }
 }
@@ -687,7 +688,7 @@ function buildInjectedScript() {
     }
 
     function tryInjectSidebar() {
-        const sidebar = document.querySelector('[role="navigation"][aria-label="Sidebar"], div.bg-sidebar');
+        const sidebar = document.querySelector('[role="navigation"][aria-label="Sidebar"], div.bg-sidebar, [data-testid="sidebar-navigation-items"]');
         if (!sidebar) return;
 
         let toolsEl = document.getElementById('agy-injected-tools-group');
@@ -695,7 +696,7 @@ function buildInjectedScript() {
             toolsEl = createToolsElement();
         }
 
-        // Look for Customizations entry in the sidebar navigation
+        // Look for Customizations entry in the sidebar or mobile top navigation
         let customizationsEl = null;
         const candidates = sidebar.querySelectorAll('button, a, div[role="button"]');
         for (let i = 0; i < candidates.length; i++) {
@@ -703,11 +704,13 @@ function buildInjectedScript() {
             const text = (el.textContent || '').trim();
             const href = el.getAttribute('href') || '';
             const testid = el.getAttribute('data-testid') || '';
+            const ariaLabel = (el.getAttribute('aria-label') || '').trim();
             if (
                 text === 'Customizations' ||
+                ariaLabel === 'Customizations' ||
                 href.includes('/customizations') ||
                 testid.includes('customization') ||
-                (text.startsWith('Customizations') && text.length < 30)
+                ((text.startsWith('Customizations') || text.endsWith('Customizations')) && text.length < 40)
             ) {
                 customizationsEl = el;
                 break;
@@ -728,8 +731,12 @@ function buildInjectedScript() {
             return;
         }
 
-        // Fallback: settings button or footer section if customizations button not rendered yet
+        // Fallback: navigation items container, settings button, or footer section if customizations button not rendered yet
         if (!document.getElementById('agy-injected-tools-group')) {
+            if (sidebar.getAttribute('data-testid') === 'sidebar-navigation-items') {
+                sidebar.appendChild(toolsEl);
+                return;
+            }
             const settingsBtn = sidebar.querySelector('button[data-testid="settings-button"]');
             if (settingsBtn && settingsBtn.parentElement) {
                 settingsBtn.parentElement.insertBefore(toolsEl, settingsBtn);

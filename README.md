@@ -247,7 +247,8 @@ optimizations into the Antigravity web app:
   and active conversation/chat occupies the right 50%.
 - **Workspace Tools Menu Placement**: Cleanly positions the Workspace Tools
   navigation group (Sidecar Manager, Custom Models, Web IDE, Host Terminal)
-  directly under the Customizations section in the sidebar navigation.
+  directly under the Customizations section in both the desktop/unfolded sidebar
+  and the top navigation of the phone layout.
 - **Top-Right Search & Sidebar Toggle Alignment**: Pushes the conversation
   search and hide-sidebar toggle buttons to the top right corner of the
   floating sidebar window card, keeping application branding separated on

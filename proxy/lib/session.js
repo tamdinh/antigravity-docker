@@ -74,7 +74,7 @@ function parseCookiesFromHeader(cookieHeader) {
 
 // Check if token or session is valid
 function isTokenValid(token) {
-    if (!AUTH_PASSWORD) return true;
+    if (!(process.env.AUTH_PASSWORD || AUTH_PASSWORD)) return true;
     if (!token) return false;
     const session = activeSessions.get(token);
     if (!session) return false;
@@ -87,7 +87,7 @@ function isTokenValid(token) {
 
 // Check if request, context, or cookie header is authenticated
 function isAuthenticated(reqOrHeader) {
-    if (!AUTH_PASSWORD) return true; // No password configured -> open access
+    if (!(process.env.AUTH_PASSWORD || AUTH_PASSWORD)) return true; // No password configured -> open access
     if (!reqOrHeader) return false;
 
     let cookieHeader = null;
