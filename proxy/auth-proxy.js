@@ -174,6 +174,8 @@ app.get('/custom.css', (c) => {
         headers: {
             'Content-Type': 'text/css; charset=utf-8',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
             'X-Content-Type-Options': 'nosniff'
         }
     });

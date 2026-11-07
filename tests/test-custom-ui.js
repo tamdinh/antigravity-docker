@@ -81,14 +81,23 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             const res = await fetch(`http://127.0.0.1:${TEST_PROXY_PORT}/custom.css`);
             assert.equal(res.status, 200);
             assert.ok(res.headers.get('content-type')?.includes('text/css'));
+            assert.equal(res.headers.get('cache-control'), 'no-cache, no-store, must-revalidate');
+            assert.equal(res.headers.get('pragma'), 'no-cache');
+            assert.equal(res.headers.get('expires'), '0');
             const css = await res.text();
             assert.ok(css.includes('--visual-viewport-height'), 'Should define --visual-viewport-height');
             assert.ok(css.includes('.agy-unfolded'), 'Should define .agy-unfolded rules');
-            assert.ok(css.includes('--sidebar-width: 50vw'), 'Should configure 50vw split width');
+            assert.ok(css.includes('.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars'), 'Should override --sidebar-width on .agy-layout-vars in unfolded layout when sidebar is not collapsed');
+            assert.ok(css.includes('.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars'), 'Should override --sidebar-width on .agy-portaled-layout-vars in unfolded layout when sidebar is not collapsed');
+            assert.ok(css.includes('--settled-content-width: calc(100vw - 260px - var(--aux-pane-width, 0px)) !important'), 'Should override --settled-content-width in unfolded layout');
+            assert.ok(css.includes(':has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-layout-vars'), 'Should reset --static-cluster-width on .agy-layout-vars when sidebar is open');
+            assert.ok(css.includes(':has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-portaled-layout-vars'), 'Should reset --static-cluster-width on .agy-portaled-layout-vars when sidebar is open');
+            assert.ok(css.includes('--static-cluster-width: 0px !important'), 'Should set --static-cluster-width to 0px when sidebar is open so conversation title is not pushed off screen');
+            assert.ok(css.includes('--sidebar-width: 260px'), 'Should configure 260px sidebar width in unfolded mode');
             assert.ok(css.includes('sidebar-sash'), 'Should size split panes around sidebar-sash');
-            assert.ok(css.includes('width: 50% !important'), 'Should enforce 50% split width on split panes');
+            assert.ok(css.includes('width: 260px !important'), 'Should enforce 260px sidebar width on split pane and unfolded header');
+            assert.ok(css.includes('width: calc(100% - 261px) !important'), 'Should enforce calc(100% - 261px) width on content pane in unfolded mode');
             assert.ok(css.includes('width: 100% !important'), 'Should stretch inner wrapper to 100% width');
-            assert.ok(css.includes('width: 50vw !important'), 'Should size unfolded header container to 50vw');
             assert.ok(!css.includes('backdrop-filter'), 'Should not include backdrop-filter glass styling');
             assert.ok(!css.includes('border-radius: 18px'), 'Should not include rounded floating window corners');
             assert.ok(!css.includes('calc(100% - 16px)'), 'Should not inset sidebar height for floating window');
@@ -120,6 +129,9 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 headers: { Cookie: cookie.split(';')[0] }
             });
             assert.equal(res.status, 200);
+            assert.equal(res.headers.get('cache-control'), 'no-cache, no-store, must-revalidate');
+            assert.equal(res.headers.get('pragma'), 'no-cache');
+            assert.equal(res.headers.get('expires'), '0');
             const html = await res.text();
 
             // 1. Verify viewport meta tag has interactive-widget=resizes-content
@@ -146,14 +158,20 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 'HTML should not contain <title>Antigravity CLI</title>'
             );
 
-            // 3. Verify custom.css link and inlined style are injected in <head>
+            // 3. Verify custom.css link (with cache-busting hash) and inlined style (placed after link) are injected in <head>
+            const styleIdx = html.indexOf('<style id="agy-custom-css">');
+            const linkMatch = html.match(/<link rel="stylesheet" href="\/custom\.css\?v=[0-9a-f]{8}" \/>/);
             assert.ok(
-                html.includes('<style id="agy-custom-css">'),
+                styleIdx !== -1,
                 'HTML head should inline agy-custom-css'
             );
             assert.ok(
-                html.includes('<link rel="stylesheet" href="/custom.css" />'),
-                'HTML head should link /custom.css'
+                linkMatch,
+                'HTML head should link /custom.css with a cache-busting version hash'
+            );
+            assert.ok(
+                html.indexOf(linkMatch[0]) < styleIdx,
+                'Inlined <style id="agy-custom-css"> should appear after <link rel="stylesheet"> so fresh inline styles take precedence'
             );
 
             // 4. Verify pre-init script is injected in <head>
@@ -202,14 +220,6 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             assert.ok(
                 html.includes('id="agy-injected-tools-script"'),
                 'HTML body should include injected tools script'
-            );
-            assert.ok(
-                html.includes('agy-floating-tools-dock'),
-                'Injected script should include draggable floating tools dock'
-            );
-            assert.ok(
-                html.includes('agy-floating-trigger'),
-                'Injected script should include floating trigger button'
             );
             assert.ok(
                 html.includes('Customizations'),
@@ -688,8 +698,260 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             fireKeyDown(desktopEnterEvt);
             assert.equal(desktopEnterEvt.shiftKey, false, 'Plain Enter on desktop should remain untouched');
         });
+
+        await t.test('Injected tools script places Sidecar Manager and Custom Models under Customizations in phone layout', () => {
+            const vm = require('node:vm');
+            const { INJECTED_UI_STYLES, buildInjectedScript } = require('../proxy/lib/ui-injection');
+
+            // Verify CSS does not hide .agy-injected-tools-group on narrow folded phone layouts
+            assert.ok(
+                !INJECTED_UI_STYLES.includes(':root:not(.agy-unfolded) .agy-injected-tools-group'),
+                'INJECTED_UI_STYLES should not hide .agy-injected-tools-group on phone layout'
+            );
+            assert.ok(
+                INJECTED_UI_STYLES.includes(':root:not(.agy-unfolded) .agy-injected-btn-ide'),
+                'INJECTED_UI_STYLES should still hide IDE button on narrow folded phone layout'
+            );
+
+            // Simulate phone layout DOM (MOBILE_HOME_VIEW: [data-testid="sidebar-navigation-items"] with no [role="navigation"][aria-label="Sidebar"])
+            const navChildren = [];
+            const mobileNavContainer = {
+                id: '',
+                className: 'flex flex-col gap-1.5 px-2',
+                classList: { contains: (cls) => cls === 'flex-col' },
+                children: navChildren,
+                getAttribute: (name) => name === 'data-testid' ? 'sidebar-navigation-items' : null,
+                querySelectorAll: () => navChildren.filter((el) => el.tagName === 'A' || el.tagName === 'BUTTON'),
+                insertBefore: (newNode, refNode) => {
+                    const existingIdx = navChildren.indexOf(newNode);
+                    if (existingIdx !== -1) navChildren.splice(existingIdx, 1);
+                    newNode.parentElement = mobileNavContainer;
+                    newNode.parentNode = mobileNavContainer;
+                    const idx = navChildren.indexOf(refNode);
+                    if (idx === -1) {
+                        navChildren.push(newNode);
+                    } else {
+                        navChildren.splice(idx, 0, newNode);
+                    }
+                    syncSiblings();
+                },
+                appendChild: (newNode) => {
+                    const existingIdx = navChildren.indexOf(newNode);
+                    if (existingIdx !== -1) navChildren.splice(existingIdx, 1);
+                    newNode.parentElement = mobileNavContainer;
+                    newNode.parentNode = mobileNavContainer;
+                    navChildren.push(newNode);
+                    syncSiblings();
+                },
+            };
+
+            function syncSiblings() {
+                for (let i = 0; i < navChildren.length; i++) {
+                    navChildren[i].previousElementSibling = i > 0 ? navChildren[i - 1] : null;
+                    navChildren[i].nextSibling = i < navChildren.length - 1 ? navChildren[i + 1] : null;
+                }
+            }
+
+            const historyBtn = {
+                tagName: 'A',
+                textContent: 'historyConversation History',
+                parentElement: mobileNavContainer,
+                parentNode: mobileNavContainer,
+                getAttribute: (name) => {
+                    if (name === 'href') return '/history';
+                    if (name === 'data-testid') return 'history-button';
+                    if (name === 'aria-label') return 'Conversation History';
+                    return null;
+                },
+                closest: () => null,
+            };
+
+            const customizationsBtn = {
+                tagName: 'A',
+                textContent: 'home_repair_serviceCustomizations',
+                parentElement: mobileNavContainer,
+                parentNode: mobileNavContainer,
+                getAttribute: (name) => {
+                    if (name === 'href') return '/customizations';
+                    if (name === 'aria-label') return 'Customizations';
+                    return null;
+                },
+                closest: () => null,
+            };
+
+            navChildren.push(historyBtn, customizationsBtn);
+            syncSiblings();
+
+            let createdToolsEl = null;
+            const sandbox = {
+                document: {
+                    readyState: 'complete',
+                    head: { appendChild: () => {} },
+                    body: {},
+                    addEventListener: () => {},
+                    getElementById: (id) => {
+                        if (id === 'agy-injected-tools-group' && createdToolsEl && navChildren.includes(createdToolsEl)) {
+                            return createdToolsEl;
+                        }
+                        return null;
+                    },
+                    querySelector: (sel) => {
+                        if (sel.includes('[data-testid="sidebar-navigation-items"]')) {
+                            return mobileNavContainer;
+                        }
+                        return null;
+                    },
+                    querySelectorAll: (sel) => {
+                        if (sel.includes("link[rel*='icon']")) return [];
+                        return [];
+                    },
+                    createElement: (tag) => {
+                        const el = {
+                            tagName: tag.toUpperCase(),
+                            id: '',
+                            className: '',
+                            innerHTML: '',
+                            rel: '',
+                            type: '',
+                            href: '',
+                            setAttribute: () => {},
+                            getAttribute: () => null,
+                        };
+                        if (tag.toLowerCase() === 'div') {
+                            createdToolsEl = el;
+                        }
+                        return el;
+                    },
+                },
+                MutationObserver: function() {
+                    return { observe: () => {} };
+                },
+            };
+
+            vm.runInNewContext(buildInjectedScript(), sandbox);
+
+            assert.ok(createdToolsEl, 'Should create #agy-injected-tools-group in phone layout');
+            assert.equal(createdToolsEl.id, 'agy-injected-tools-group');
+            assert.ok(createdToolsEl.innerHTML.includes('Sidecar Manager'), 'Should include Sidecar Manager button');
+            assert.ok(createdToolsEl.innerHTML.includes('Custom Models'), 'Should include Custom Models button');
+            assert.equal(
+                navChildren.indexOf(createdToolsEl),
+                navChildren.indexOf(customizationsBtn) + 1,
+                'Should insert #agy-injected-tools-group directly after Customizations in phone layout'
+            );
+        });
+
+        await t.test('syncSidebarWidth sets --sidebar-width on documentElement, root, and top header container', () => {
+            const vm = require('node:vm');
+            const { buildPreInitScript } = require('../proxy/lib/ui-injection');
+
+            function makeStyleRecorder() {
+                const props = {};
+                return {
+                    props,
+                    setProperty: (k, v) => { props[k] = v; },
+                    removeProperty: (k) => { delete props[k]; },
+                };
+            }
+
+            const docElStyle = makeStyleRecorder();
+            const rootStyle = makeStyleRecorder();
+            const topHeaderStyle = makeStyleRecorder();
+            const sidebarParentStyle = makeStyleRecorder();
+
+            const sidebarPane = {
+                getBoundingClientRect: () => ({ width: 400 }),
+                closest: () => null,
+            };
+            const sidebarParent = {
+                style: sidebarParentStyle,
+                closest: () => sidebarPane,
+            };
+            const sidebar = {
+                parentElement: sidebarParent,
+            };
+            const topHeader = { style: topHeaderStyle };
+            const rootEl = { style: rootStyle };
+            let sidebarClosed = false;
+            const winListeners = {};
+
+            let storedSidebarWidth = '380';
+            let removedSidebarWidth = false;
+
+            const sandbox = {
+                window: {
+                    innerWidth: 840,
+                    innerHeight: 900,
+                    matchMedia: () => ({ matches: true }),
+                    addEventListener: (type, fn) => {
+                        if (!winListeners[type]) winListeners[type] = [];
+                        winListeners[type].push(fn);
+                    },
+                    localStorage: {
+                        getItem: (k) => k === 'sidebarWidth' ? storedSidebarWidth : null,
+                        removeItem: (k) => {
+                            if (k === 'sidebarWidth') {
+                                removedSidebarWidth = true;
+                                storedSidebarWidth = null;
+                            }
+                        }
+                    },
+                },
+                navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14)', maxTouchPoints: 5 },
+                document: {
+                    readyState: 'complete',
+                    title: 'Antigravity',
+                    body: { querySelectorAll: () => [], appendChild: () => {} },
+                    documentElement: {
+                        style: docElStyle,
+                        classList: { toggle: () => {}, contains: () => true },
+                        appendChild: () => {},
+                    },
+                    addEventListener: () => {},
+                    getElementById: (id) => id === 'root' ? rootEl : null,
+                    querySelector: (sel) => {
+                        if (sel === '[role="navigation"][aria-label="Sidebar"]') return sidebar;
+                        if (sel === 'div.absolute.left-0.top-0') return topHeader;
+                        if (sel === '[data-testid="sidebar-toggle"][aria-expanded="false"]') return sidebarClosed ? {} : null;
+                        return null;
+                    },
+                    querySelectorAll: () => [],
+                    createElement: () => ({
+                        style: {},
+                        getBoundingClientRect: () => ({ height: 0 }),
+                        remove: () => {},
+                    }),
+                },
+                HTMLElement: function() {},
+                Document: function() {},
+                HTMLDocument: function() {},
+                Object,
+                String,
+                Number,
+                Math,
+                setTimeout,
+            };
+
+            vm.runInNewContext(buildPreInitScript(), sandbox);
+
+            assert.equal(removedSidebarWidth, true, 'Should clear non-260px sidebarWidth from localStorage in unfolded mode');
+            assert.equal(docElStyle.props['--sidebar-width'], '260px');
+            assert.equal(rootStyle.props['--sidebar-width'], '260px');
+            assert.equal(topHeaderStyle.props['--sidebar-width'], '260px');
+
+            // When sidebar is explicitly collapsed, --sidebar-width should be cleared
+            sidebarClosed = true;
+            for (const fn of winListeners['resize'] || []) {
+                fn();
+            }
+            assert.equal(docElStyle.props['--sidebar-width'], undefined);
+            assert.equal(rootStyle.props['--sidebar-width'], undefined);
+            assert.equal(topHeaderStyle.props['--sidebar-width'], undefined);
+        });
     } finally {
         proxyProc.kill('SIGTERM');
         await new Promise((resolve) => mockAgyServer.close(resolve));
     }
 });
+
+
