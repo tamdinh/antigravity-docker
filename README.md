@@ -241,10 +241,10 @@ optimizations into the Antigravity web app:
   on-screen virtual keyboards on mobile devices (e.g., Android Chrome) from
   covering the prompt text entry box, smoothly scrolling the active input into
   view.
-- **Foldable Unfolded 50/50 Split**: Detects foldable devices in unfolded mode
+- **Foldable Unfolded Split Layout**: Detects foldable devices in unfolded mode
   (e.g., Google Pixel Fold, Samsung Galaxy Z Fold) and configures the desktop
-  split-pane layout so projects and conversation history occupy the left 50%
-  and active conversation/chat occupies the right 50%.
+  split-pane layout with a fixed `260px` sidebar on the left and the active
+  conversation/chat occupying the remaining width on the right.
 - **Workspace Tools Menu Placement**: Cleanly positions the Workspace Tools
   navigation group (Sidecar Manager, Custom Models, Web IDE, Host Terminal)
   directly under the Customizations section in both the desktop/unfolded sidebar

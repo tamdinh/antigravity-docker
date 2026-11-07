@@ -476,7 +476,7 @@ function buildPreInitScript() {
             if (isClosed) {
                 updateSidebarWidthVars(null);
             } else {
-                updateSidebarWidthVars(Math.round(window.innerWidth / 2));
+                updateSidebarWidthVars(260);
             }
         }
 
@@ -487,7 +487,7 @@ function buildPreInitScript() {
                     var w = entries[i].contentRect ? entries[i].contentRect.width : entries[i].target.getBoundingClientRect().width;
                     if (w > 50 && !isSidebarExplicitlyClosed()) {
                         if (isFoldableUnfolded()) {
-                            w = Math.round(window.innerWidth / 2);
+                            w = 260;
                         }
                         updateSidebarWidthVars(w);
                     } else {

@@ -86,15 +86,15 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             assert.ok(css.includes('.agy-unfolded'), 'Should define .agy-unfolded rules');
             assert.ok(css.includes('.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars'), 'Should override --sidebar-width on .agy-layout-vars in unfolded layout when sidebar is not collapsed');
             assert.ok(css.includes('.agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars'), 'Should override --sidebar-width on .agy-portaled-layout-vars in unfolded layout when sidebar is not collapsed');
-            assert.ok(css.includes('--settled-content-width: calc(50vw - var(--aux-pane-width, 0px)) !important'), 'Should override --settled-content-width in unfolded layout');
+            assert.ok(css.includes('--settled-content-width: calc(100vw - 260px - var(--aux-pane-width, 0px)) !important'), 'Should override --settled-content-width in unfolded layout');
             assert.ok(css.includes(':has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-layout-vars'), 'Should reset --static-cluster-width on .agy-layout-vars when sidebar is open');
             assert.ok(css.includes(':has([data-testid="sidebar-toggle"][aria-expanded="true"]) .agy-portaled-layout-vars'), 'Should reset --static-cluster-width on .agy-portaled-layout-vars when sidebar is open');
             assert.ok(css.includes('--static-cluster-width: 0px !important'), 'Should set --static-cluster-width to 0px when sidebar is open so conversation title is not pushed off screen');
-            assert.ok(css.includes('--sidebar-width: 50vw'), 'Should configure 50vw split width');
+            assert.ok(css.includes('--sidebar-width: 260px'), 'Should configure 260px sidebar width in unfolded mode');
             assert.ok(css.includes('sidebar-sash'), 'Should size split panes around sidebar-sash');
-            assert.ok(css.includes('width: 50% !important'), 'Should enforce 50% split width on split panes');
+            assert.ok(css.includes('width: 260px !important'), 'Should enforce 260px sidebar width on split pane and unfolded header');
+            assert.ok(css.includes('width: calc(100% - 261px) !important'), 'Should enforce calc(100% - 261px) width on content pane in unfolded mode');
             assert.ok(css.includes('width: 100% !important'), 'Should stretch inner wrapper to 100% width');
-            assert.ok(css.includes('width: 50vw !important'), 'Should size unfolded header container to 50vw');
             assert.ok(!css.includes('backdrop-filter'), 'Should not include backdrop-filter glass styling');
             assert.ok(!css.includes('border-radius: 18px'), 'Should not include rounded floating window corners');
             assert.ok(!css.includes('calc(100% - 16px)'), 'Should not inset sidebar height for floating window');
@@ -911,9 +911,9 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
 
             vm.runInNewContext(buildPreInitScript(), sandbox);
 
-            assert.equal(docElStyle.props['--sidebar-width'], '420px');
-            assert.equal(rootStyle.props['--sidebar-width'], '420px');
-            assert.equal(topHeaderStyle.props['--sidebar-width'], '420px');
+            assert.equal(docElStyle.props['--sidebar-width'], '260px');
+            assert.equal(rootStyle.props['--sidebar-width'], '260px');
+            assert.equal(topHeaderStyle.props['--sidebar-width'], '260px');
 
             // When sidebar is explicitly collapsed, --sidebar-width should be cleared
             sidebarClosed = true;

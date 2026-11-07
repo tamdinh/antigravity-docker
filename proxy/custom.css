@@ -41,24 +41,24 @@ input:focus {
 }
 
 /* ==========================================================================
-   2. Foldable Unfolded 50/50 Split Layout
+   2. Foldable Unfolded 260px Sidebar Split Layout
    ========================================================================== */
 .agy-unfolded {
-  --sidebar-width: 50vw !important;
+  --sidebar-width: 260px !important;
 }
 
 .agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars,
 .agy-unfolded:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars {
-  --sidebar-width: 50vw !important;
-  --settled-content-width: calc(50vw - var(--aux-pane-width, 0px)) !important;
+  --sidebar-width: 260px !important;
+  --settled-content-width: calc(100vw - 260px - var(--aux-pane-width, 0px)) !important;
 }
 
 /* Outer split-pane container containing the sidebar sash */
 .agy-unfolded div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:first-child {
-  width: 50% !important;
-  max-width: 50% !important;
-  min-width: 50% !important;
-  flex: 0 0 50% !important;
+  width: 260px !important;
+  max-width: 260px !important;
+  min-width: 260px !important;
+  flex: 0 0 260px !important;
 }
 
 /* Ensure inner wrapper in split-pane first child stretches to full 100% width and docks left */
@@ -77,32 +77,32 @@ input:focus {
 }
 
 .agy-unfolded div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:last-child {
-  width: calc(50% - 1px) !important;
-  max-width: calc(50% - 1px) !important;
-  min-width: calc(50% - 1px) !important;
-  flex: 0 0 calc(50% - 1px) !important;
+  width: calc(100% - 261px) !important;
+  max-width: calc(100% - 261px) !important;
+  min-width: calc(100% - 261px) !important;
+  flex: 0 0 calc(100% - 261px) !important;
 }
 
-/* Top header container in unfolded mode spans the full 50vw sidebar */
+/* Top header container in unfolded mode spans the 260px sidebar */
 .agy-unfolded div.absolute.left-0.top-0:has([data-testid="sidebar-toggle"][aria-expanded="true"]) {
-  width: 50vw !important;
-  max-width: 50vw !important;
+  width: 260px !important;
+  max-width: 260px !important;
 }
 
 @media (min-width: 480px) and (max-width: 1050px) and (min-aspect-ratio: 65/100) and (max-aspect-ratio: 150/100) {
   :root {
-    --sidebar-width: 50vw !important;
+    --sidebar-width: 260px !important;
   }
   :root:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-layout-vars,
   :root:not(:has([data-testid="sidebar-toggle"][aria-expanded="false"])) .agy-portaled-layout-vars {
-    --sidebar-width: 50vw !important;
-    --settled-content-width: calc(50vw - var(--aux-pane-width, 0px)) !important;
+    --sidebar-width: 260px !important;
+    --settled-content-width: calc(100vw - 260px - var(--aux-pane-width, 0px)) !important;
   }
   div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:first-child {
-    width: 50% !important;
-    max-width: 50% !important;
-    min-width: 50% !important;
-    flex: 0 0 50% !important;
+    width: 260px !important;
+    max-width: 260px !important;
+    min-width: 260px !important;
+    flex: 0 0 260px !important;
   }
   div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:first-child > div {
     width: 100% !important;
@@ -117,14 +117,14 @@ input:focus {
     max-width: 100% !important;
   }
   div[style*="container-type"]:has([data-testid="sidebar-sash"]) > div:last-child {
-    width: calc(50% - 1px) !important;
-    max-width: calc(50% - 1px) !important;
-    min-width: calc(50% - 1px) !important;
-    flex: 0 0 calc(50% - 1px) !important;
+    width: calc(100% - 261px) !important;
+    max-width: calc(100% - 261px) !important;
+    min-width: calc(100% - 261px) !important;
+    flex: 0 0 calc(100% - 261px) !important;
   }
   div.absolute.left-0.top-0:has([data-testid="sidebar-toggle"][aria-expanded="true"]) {
-    width: 50vw !important;
-    max-width: 50vw !important;
+    width: 260px !important;
+    max-width: 260px !important;
   }
 }
 
