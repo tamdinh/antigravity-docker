@@ -81,6 +81,9 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             const res = await fetch(`http://127.0.0.1:${TEST_PROXY_PORT}/custom.css`);
             assert.equal(res.status, 200);
             assert.ok(res.headers.get('content-type')?.includes('text/css'));
+            assert.equal(res.headers.get('cache-control'), 'no-cache, no-store, must-revalidate');
+            assert.equal(res.headers.get('pragma'), 'no-cache');
+            assert.equal(res.headers.get('expires'), '0');
             const css = await res.text();
             assert.ok(css.includes('--visual-viewport-height'), 'Should define --visual-viewport-height');
             assert.ok(css.includes('.agy-unfolded'), 'Should define .agy-unfolded rules');
@@ -126,6 +129,9 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 headers: { Cookie: cookie.split(';')[0] }
             });
             assert.equal(res.status, 200);
+            assert.equal(res.headers.get('cache-control'), 'no-cache, no-store, must-revalidate');
+            assert.equal(res.headers.get('pragma'), 'no-cache');
+            assert.equal(res.headers.get('expires'), '0');
             const html = await res.text();
 
             // 1. Verify viewport meta tag has interactive-widget=resizes-content
@@ -152,14 +158,20 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                 'HTML should not contain <title>Antigravity CLI</title>'
             );
 
-            // 3. Verify custom.css link and inlined style are injected in <head>
+            // 3. Verify custom.css link (with cache-busting hash) and inlined style (placed after link) are injected in <head>
+            const styleIdx = html.indexOf('<style id="agy-custom-css">');
+            const linkMatch = html.match(/<link rel="stylesheet" href="\/custom\.css\?v=[0-9a-f]{8}" \/>/);
             assert.ok(
-                html.includes('<style id="agy-custom-css">'),
+                styleIdx !== -1,
                 'HTML head should inline agy-custom-css'
             );
             assert.ok(
-                html.includes('<link rel="stylesheet" href="/custom.css" />'),
-                'HTML head should link /custom.css'
+                linkMatch,
+                'HTML head should link /custom.css with a cache-busting version hash'
+            );
+            assert.ok(
+                html.indexOf(linkMatch[0]) < styleIdx,
+                'Inlined <style id="agy-custom-css"> should appear after <link rel="stylesheet"> so fresh inline styles take precedence'
             );
 
             // 4. Verify pre-init script is injected in <head>
@@ -863,6 +875,9 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
             let sidebarClosed = false;
             const winListeners = {};
 
+            let storedSidebarWidth = '380';
+            let removedSidebarWidth = false;
+
             const sandbox = {
                 window: {
                     innerWidth: 840,
@@ -872,7 +887,15 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
                         if (!winListeners[type]) winListeners[type] = [];
                         winListeners[type].push(fn);
                     },
-                    localStorage: { getItem: () => null, removeItem: () => {} },
+                    localStorage: {
+                        getItem: (k) => k === 'sidebarWidth' ? storedSidebarWidth : null,
+                        removeItem: (k) => {
+                            if (k === 'sidebarWidth') {
+                                removedSidebarWidth = true;
+                                storedSidebarWidth = null;
+                            }
+                        }
+                    },
                 },
                 navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 14)', maxTouchPoints: 5 },
                 document: {
@@ -911,6 +934,7 @@ test('Custom UI, Viewport & Foldable Layout', async (t) => {
 
             vm.runInNewContext(buildPreInitScript(), sandbox);
 
+            assert.equal(removedSidebarWidth, true, 'Should clear non-260px sidebarWidth from localStorage in unfolded mode');
             assert.equal(docElStyle.props['--sidebar-width'], '260px');
             assert.equal(rootStyle.props['--sidebar-width'], '260px');
             assert.equal(topHeaderStyle.props['--sidebar-width'], '260px');

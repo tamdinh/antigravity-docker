@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { replaceFaviconInHtml } = require('./favicon');
@@ -111,6 +112,8 @@ async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
         shouldInterceptModels;
     if (wantsHtml) {
         proxyHeaders['accept-encoding'] = 'identity';
+        delete proxyHeaders['if-none-match'];
+        delete proxyHeaders['if-modified-since'];
     }
 
     const hasBody = c.req.method !== 'GET' && c.req.method !== 'HEAD';
@@ -226,8 +229,9 @@ async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
                     }
                 } catch (e) {}
 
+                const cssHash = crypto.createHash('sha256').update(customCss).digest('hex').slice(0, 8);
                 const preInitScript = buildPreInitScript ? buildPreInitScript() : '';
-                const headInjection = `\n    <style id="agy-custom-css">${customCss}</style>\n    <link rel="stylesheet" href="/custom.css" />\n    <script id="agy-pre-init">${preInitScript}</script>\n`;
+                const headInjection = `\n    <link rel="stylesheet" href="/custom.css?v=${cssHash}" />\n    <style id="agy-custom-css">${customCss}</style>\n    <script id="agy-pre-init">${preInitScript}</script>\n`;
                 if (html.includes('</head>')) {
                     html = html.replace('</head>', `${headInjection}</head>`);
                 } else {
@@ -248,6 +252,9 @@ async function proxyWebRequest(c, targetPort, targetPath, options = {}) {
             }
 
             resHeaders.delete('content-length');
+            resHeaders.set('cache-control', 'no-cache, no-store, must-revalidate');
+            resHeaders.set('pragma', 'no-cache');
+            resHeaders.set('expires', '0');
             return new Response(html, {
                 status: upstreamRes.status,
                 headers: resHeaders

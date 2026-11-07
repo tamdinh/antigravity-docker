@@ -118,9 +118,12 @@ function buildPreInitScript() {
     }
 
     try {
-        var currentSw = Number(localStorage.getItem('sidebarWidth'));
-        if (currentSw > 450) {
-            localStorage.removeItem('sidebarWidth');
+        var ls = (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : (typeof localStorage !== 'undefined' ? localStorage : null);
+        if (ls) {
+            var currentSw = Number(ls.getItem('sidebarWidth'));
+            if (currentSw > 450 || (isFoldableUnfolded() && currentSw && currentSw !== 260)) {
+                ls.removeItem('sidebarWidth');
+            }
         }
     } catch (e) {}
 
