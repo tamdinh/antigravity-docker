@@ -2,6 +2,7 @@ services:
   antigravity:
     image: jklinker/antigravity:slim
     container_name: antigravity
+    privileged: true
     restart: unless-stopped
     ports:
       - "4400:4400"

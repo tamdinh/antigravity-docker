@@ -5,6 +5,7 @@ services:
       context: .
       dockerfile: Dockerfile.fork
     command: ["daemon"]
+    privileged: true
     restart: unless-stopped
     ports:
       - "4400:4400"
