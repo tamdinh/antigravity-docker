@@ -64,6 +64,7 @@ WORKDIR /home/${USERNAME}
 
 RUN mkdir -p /home/${USERNAME}/.local/bin && \
     curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /home/${USERNAME}/.local/bin && \
+    npm config set prefix "/home/${USERNAME}/.local" && \
     git config --global user.name "Tam Dinh" && \
     git config --global user.email "tamdinh@gmail.com"
 
@@ -156,6 +157,10 @@ RUN mkdir -p /home/${USERNAME}/.local/share/code-server \
     if [ -d /usr/lib/code-server/lib/vscode/resources/server ]; then \
         cp /usr/local/share/antigravity/assets/favicon.ico /usr/lib/code-server/lib/vscode/resources/server/favicon.ico 2>/dev/null || true; \
     fi
+
+# 4. Pre-install rea-agents in user-writable npm prefix so `rea --update` works without root
+RUN gosu ${USERNAME} npm install -g rea-agents && \
+    rm -rf /home/${USERNAME}/.npm
 
 COPY scripts/host-terminal.sh /usr/local/bin/host-terminal.sh
 RUN chmod +x /usr/local/bin/host-terminal.sh
