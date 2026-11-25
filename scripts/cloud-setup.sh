@@ -5,13 +5,34 @@
 
 set -euo pipefail
 
-echo "==> [1/6] Configuring user PATH and npm prefix (~/.local)..."
+echo "==> [1/6] Configuring user PATH, env file, and npm prefix (~/.local)..."
 mkdir -p "$HOME/.local/bin" "$HOME/.gemini/config/skills" "$HOME/.gemini/config/rules"
 export PATH="$HOME/.local/bin:$PATH"
 
+# Auto-load uploaded env file if present in Antigravity Remote Cloud (/home/antigravity/upload)
+CLOUD_ENV_FILE=""
+for candidate in "/home/antigravity/upload/cloud.env" "/home/antigravity/upload/.env"; do
+  if [ -f "$candidate" ]; then
+    CLOUD_ENV_FILE="$candidate"
+    break
+  fi
+done
+
+if [ -n "$CLOUD_ENV_FILE" ]; then
+  echo "    Loading environment variables from $CLOUD_ENV_FILE..."
+  set -a
+  # shellcheck disable=SC1090
+  source "$CLOUD_ENV_FILE"
+  set +a
+fi
+
 for rc in "$HOME/.bashrc" "$HOME/.profile"; do
-  if [ -f "$rc" ] && ! grep -q '\.local/bin' "$rc"; then
+  touch "$rc"
+  if ! grep -q '\.local/bin' "$rc"; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
+  fi
+  if [ -n "$CLOUD_ENV_FILE" ] && ! grep -q "$CLOUD_ENV_FILE" "$rc"; then
+    echo "[ -f \"$CLOUD_ENV_FILE\" ] && set -a && source \"$CLOUD_ENV_FILE\" && set +a" >> "$rc"
   fi
 done
 
