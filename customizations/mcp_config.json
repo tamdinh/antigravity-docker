@@ -19,6 +19,10 @@
     "rea": {
       "command": "npx",
       "args": ["-y", "rea-agents"]
+    },
+    "craft-anything": {
+      "command": "craft-anything-cli",
+      "args": ["mcp"]
     }
   }
 }

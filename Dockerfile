@@ -162,6 +162,24 @@ RUN mkdir -p /home/${USERNAME}/.local/share/code-server \
 RUN gosu ${USERNAME} npm install -g rea-agents && \
     rm -rf /home/${USERNAME}/.npm
 
+# 5. Pre-install craft-anything-cli (Rust clean-room reverse engineering & rebuild engine)
+RUN ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+        x86_64) CA_ARCH="x86_64" ;; \
+        aarch64|arm64) CA_ARCH="aarch64" ;; \
+        *) echo "Unsupported arch for craft-anything: $ARCH" && exit 1 ;; \
+    esac && \
+    CA_TAG="$(curl -fsSL https://api.github.com/repos/storytold/craft-anything/releases/latest 2>/dev/null | jq -r '.tag_name // empty')" && \
+    CA_TAG="${CA_TAG:-v0.6.1}" && \
+    CA_VER="${CA_TAG#v}" && \
+    TMP_CA="$(mktemp -d)" && \
+    curl -fsSL "https://github.com/storytold/craft-anything/releases/download/${CA_TAG}/craft-anything-${CA_VER}-linux-${CA_ARCH}.tar.gz" -o "${TMP_CA}/ca.tar.gz" && \
+    tar -xzf "${TMP_CA}/ca.tar.gz" -C "${TMP_CA}" --wildcards "*/bin/craft-anything-cli" && \
+    mv "${TMP_CA}"/*/bin/craft-anything-cli "/home/${USERNAME}/.local/bin/craft-anything-cli" && \
+    chmod +x "/home/${USERNAME}/.local/bin/craft-anything-cli" && \
+    chown "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.local/bin/craft-anything-cli" && \
+    rm -rf "${TMP_CA}"
+
 COPY scripts/host-terminal.sh /usr/local/bin/host-terminal.sh
 RUN chmod +x /usr/local/bin/host-terminal.sh
 

@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-echo "==> [1/6] Configuring user PATH, env file, and npm prefix (~/.local)..."
+echo "==> [1/7] Configuring user PATH, env file, and npm prefix (~/.local)..."
 mkdir -p "$HOME/.local/bin" "$HOME/.gemini/config/skills" "$HOME/.gemini/config/rules"
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -38,7 +38,7 @@ done
 
 npm config set prefix "$HOME/.local"
 
-echo "==> [2/6] Installing Node/JS & AI CLI tools..."
+echo "==> [2/7] Installing Node/JS & AI CLI tools..."
 npm install -g \
   bun \
   pnpm \
@@ -53,7 +53,7 @@ npm install -g \
   skills \
   add-mcp
 
-echo "==> [3/6] Installing Python tooling (uv, poetry, pipenv, virtualenv)..."
+echo "==> [3/7] Installing Python tooling (uv, poetry, pipenv, virtualenv)..."
 if ! command -v uv >/dev/null 2>&1; then
   curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/.local/bin" INSTALLER_NO_MODIFY_PATH=1 sh
 fi
@@ -61,7 +61,33 @@ uv tool install poetry || true
 uv tool install pipenv || true
 uv tool install virtualenv || true
 
-echo "==> [4/6] Installing browserless-mcp wrapper..."
+echo "==> [4/7] Installing craft-anything-cli..."
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64) CA_ARCH="x86_64" ;;
+  aarch64|arm64) CA_ARCH="aarch64" ;;
+  *) CA_ARCH="" ;;
+esac
+
+if [ -n "$CA_ARCH" ]; then
+  CA_TAG="$(curl -fsSL "https://api.github.com/repos/storytold/craft-anything/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1 || true)"
+  CA_TAG="${CA_TAG:-v0.6.1}"
+  CA_VER="${CA_TAG#v}"
+  TMP_CA="$(mktemp -d)"
+  if curl -fsSL "https://github.com/storytold/craft-anything/releases/download/${CA_TAG}/craft-anything-${CA_VER}-linux-${CA_ARCH}.tar.gz" -o "${TMP_CA}/ca.tar.gz"; then
+    tar -xzf "${TMP_CA}/ca.tar.gz" -C "${TMP_CA}" --wildcards "*/bin/craft-anything-cli"
+    mv "${TMP_CA}"/*/bin/craft-anything-cli "$HOME/.local/bin/craft-anything-cli"
+    chmod +x "$HOME/.local/bin/craft-anything-cli"
+    echo "    Installed craft-anything-cli (${CA_TAG}) from storytold/craft-anything"
+  else
+    echo "    Warning: Failed to download craft-anything-cli (${CA_TAG}), skipping."
+  fi
+  rm -rf "${TMP_CA}"
+else
+  echo "    Skipping craft-anything-cli: unsupported architecture ($ARCH)"
+fi
+
+echo "==> [5/7] Installing browserless-mcp wrapper..."
 cat <<'EOF' > "$HOME/.local/bin/browserless-mcp"
 #!/usr/bin/env bash
 set -e
@@ -84,7 +110,7 @@ exec mcp-remote "$TARGET_URL" "${EXTRA_HEADERS[@]}" "${ARGS[@]}"
 EOF
 chmod +x "$HOME/.local/bin/browserless-mcp"
 
-echo "==> [5/6] Syncing Skills, Rules & MCP config from antigravity-docker..."
+echo "==> [6/7] Syncing Skills, Rules & MCP config from antigravity-docker..."
 CUSTOM_SRC=""
 TMP_REPO=""
 if [ -d "./customizations" ]; then
@@ -135,7 +161,7 @@ fs.writeFileSync(dstPath, JSON.stringify(dst, null, 2));
 ' "$CUSTOM_SRC/mcp_config.json" "$HOME/.gemini/config/mcp_config.json"
 fi
 
-echo "==> [6/6] Configuring Git & CLI auth (if env vars are provided)..."
+echo "==> [7/7] Configuring Git & CLI auth (if env vars are provided)..."
 [ -n "${GIT_USER_NAME:-}" ] && git config --global user.name "$GIT_USER_NAME"
 [ -n "${GIT_USER_EMAIL:-}" ] && git config --global user.email "$GIT_USER_EMAIL"
 
